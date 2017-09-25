@@ -1061,6 +1061,7 @@ void stp_gcol(int space_asked)	/* BYPASSOK */
 				 * the range of stringpool.base and stringpool.top. In the 'array' of (mstr *) they
 				 * must be either at the beginning, or at the end.
 				 */
+				DBGSTPGCOL((stderr, "STP_MOVE defined\n"));
 				tmpaddr = (unsigned char *)(*array)->addr;
 				if (IS_PTR_IN_RANGE(tmpaddr, stringpool.base, stringpool.top))	/* BYPASSOK */
 					topstr -= stp_move_count;/* stringpool elements before move elements in stp_array */

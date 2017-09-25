@@ -85,10 +85,14 @@ ifneq (,$(findstring Linux,$(UNAMESTR)))
 	RPATHFLAGS = -Wl,-rpath,'$$ORIGIN'
 	# So that we can build shared library.
 	LDSHR = -shared
-	IFLAGS += -I /usr/local/ssl/include
 	ifeq ($(BIT64),0)
+		IFLAGS += -I /usr/local/ssl/include
 		LIBFLAGS += -L /usr/local/ssl/lib -L /usr/lib/x86_64-linux-gnu
+	else ifneq (,$(findstring armv7l,$(MACHTYPE)))
+		IFLAGS += -I /usr/include/openssl -I /usr/lib/arm-linux-gnueabihf
+		LIBFLAGS += -L /usr/lib/arm-linux-gnueabihf
 	else
+		IFLAGS += -I /usr/local/ssl/include
 		LIBFLAGS += -L /usr/local/ssl/lib -L /usr/lib/x86-linux-gnu
 	endif
 endif

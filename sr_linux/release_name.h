@@ -18,6 +18,8 @@
 #define GTM_RELEASE_NAME 	"GT.M V6.3-000A Linux x86_64"
 #elif defined(__s390__)
 #define GTM_RELEASE_NAME 	"GT.M V6.3-000A Linux S390X"
+#elif defined(__armv7l__)
+#define GTM_RELEASE_NAME 	"GT.M V6.3-000A Linux armv7l"
 #else
 #define GTM_RELEASE_NAME 	"GT.M V6.3-000A Linux x86"
 #endif
