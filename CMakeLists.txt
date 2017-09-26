@@ -643,6 +643,7 @@ set(m_files_sr_port
   )
 file(GLOB m_files_sr_unix RELATIVE ${GTM_SOURCE_DIR}/sr_unix ${GTM_SOURCE_DIR}/sr_unix/*.m)
 file(GLOB m_files_sr_x86_64 RELATIVE ${GTM_SOURCE_DIR}/sr_x86_64 ${GTM_SOURCE_DIR}/sr_x86_64/*.m)
+file(GLOB m_files_sr_armv7l RELATIVE ${GTM_SOURCE_DIR}/sr_armv7l ${GTM_SOURCE_DIR}/sr_armv7l/*.m)
 file(GLOB m_files_sr_i386 RELATIVE ${GTM_SOURCE_DIR}/sr_i386 ${GTM_SOURCE_DIR}/sr_i386/*.m)
 file(GLOB mpt_files_sr_port RELATIVE ${GTM_SOURCE_DIR}/sr_port ${GTM_SOURCE_DIR}/sr_port/*.mpt)
 file(GLOB mpt_files_sr_unix RELATIVE ${GTM_SOURCE_DIR}/sr_unix ${GTM_SOURCE_DIR}/sr_unix/*.mpt)
