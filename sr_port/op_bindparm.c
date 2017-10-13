@@ -1,10 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2014 Fidelity National Information 	*
- * Services, Inc. and/or its subsidiaries. All rights reserved.	*
- *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
- * All rights reserved.						*
+ *	Copyright 2001, 2014 Fidelity Information Services, Inc	*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -43,7 +39,7 @@ error_def(ERR_ACTLSTTOOLONG);
 error_def(ERR_STACKCRIT);
 error_def(ERR_STACKOFLOW);
 
-void op_bindparm(int frmc, int frmp_arg, ...)
+void op_bindparm(UNIX_ONLY_COMMA(int frmc) int frmp_arg, ...)
 {
 	va_list		var;
 	uint4		mask;
@@ -94,7 +90,7 @@ void op_bindparm(int frmc, int frmp_arg, ...)
 		/* If the parameter pool is uninitialized, there are no parameters we can bind. */
 		return;
 	assert(0 <= frmc);
-	/* This would also guarantee that actc > 0 */
+	/* This would also guarantee that actc > 0. */
 	if (actc > frmc)
 	{
 		error = TRUE;
@@ -116,7 +112,7 @@ void op_bindparm(int frmc, int frmp_arg, ...)
 			ntab = &((mvs_pval_struct *)*actp)->mvs_ptab;
 			new_var = ((mvs_pval_struct *)*actp)->mvs_val;
 		} else
-		{	/* Actual list parm - dotted pass-by-reference parm or call-in O/IO parameter */
+		{	/* Actual list parm - dotted pass-by-reference parm */
 			PUSH_MV_STENT(MVST_NTAB);
 			ntab = &mv_chain->mv_st_cont.mvs_ntab;
 			ntab->hte_addr = NULL;		/* In case table gets expanded before we set it below */

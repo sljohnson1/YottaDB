@@ -1,10 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2014 Fidelity National Information	*
- * Services, Inc. and/or its subsidiaries. All rights reserved.	*
- *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
- * All rights reserved.						*
+ *	Copyright 2001, 2014 Fidelity Information Services, Inc	*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -54,8 +50,6 @@ error_def(ERR_TEXT);
 error_def(ERR_SYSCALL);
 error_def(ERR_JOBSTARTCMDFAIL);
 error_def(ERR_JOBLABOFF);
-
-void gtm_levl_ret_code(void);
 
 CONDITION_HANDLER(job_init_ch)
 {
@@ -154,7 +148,8 @@ void jobchild_init(void)
 				rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_JOBLABOFF);
 		} else if (MUMPS_CALLIN & invocation_mode) /* call-in mode */
 		{
-			transfer_addr = NULL;	/* Not used for call-ins */
+			base_addr = make_cimode();
+			transfer_addr = PTEXT_ADR(base_addr);
 		} else /* direct mode */
 		{
 			base_addr = make_dmode();
@@ -166,12 +161,11 @@ void jobchild_init(void)
 		(TREF(dollar_zmode)).str.addr = (char *)interactive_mode_buf;
 		(TREF(dollar_zmode)).str.len = SIZEOF(interactive_mode_buf) -1;
 	}
+	gtm_init_env(base_addr, transfer_addr);
 	if (MUMPS_CALLIN & invocation_mode)
 	{
-		base_frame(NULL);			/* Filled in by following SET_CI_ENV macro */
-		SET_CI_ENV(gtm_levl_ret_code);
-	} else
-		gtm_init_env(base_addr, transfer_addr);
+		SET_CI_ENV(ci_ret_code_exit);
+	}
 	if (job_arglist.callargs)
 		callg((INTPTR_T (*)(intszofptr_t cnt, ...))push_parm, (gparam_list *)&job_arglist);
 	REVERT;

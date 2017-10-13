@@ -3,9 +3,6 @@
  * Copyright (c) 2001-2016 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
- * All rights reserved.						*
- *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -14,7 +11,6 @@
  ****************************************************************/
 
 #include "mdef.h"
-
 #include <stdarg.h>
 #include "gtm_stdio.h"
 #include <errno.h>
@@ -25,7 +21,6 @@
 #include "gtm_stdlib.h"
 #include "gtm_string.h"
 #include "gtm_limits.h"
-
 #include "cli.h"
 #include "stringpool.h"
 #include <rtnhdr.h>
@@ -52,7 +47,6 @@
 #include "gtmmsg.h"
 #include "common_startup_init.h"
 #include "gtm_threadgbl_init.h"
-#include "gtmio.h"
 #ifdef GTM_TRIGGER
 # include "gdsroot.h"
 # include "gtm_facility.h"
@@ -74,10 +68,8 @@ GBLREF	u_casemap_t 		gtm_strToTitle_ptr;		/* Function pointer for gtm_strToTitle
 #include "have_crit.h"
 #include "callg.h"
 #include "min_max.h"
-#include "alias.h"
-#include "parm_pool.h"
-#include "auto_zlink.h"
 
+GBLREF	parmblk_struct 		*param_list;
 GBLREF  stack_frame     	*frame_pointer;
 GBLREF  unsigned char		*msp;
 GBLREF  mv_stent         	*mv_chain;
@@ -96,12 +88,9 @@ GBLREF	pthread_t		gtm_main_thread_id;
 GBLREF	boolean_t		gtm_main_thread_id_set;
 #endif
 GBLREF	char			gtm_dist[GTM_PATH_MAX];
-GBLREF	boolean_t		gtm_dist_ok_to_use;
-GBLREF	int			dollar_truth;
+GBLREF boolean_t		gtm_dist_ok_to_use;
 GTMTRIG_DBG_ONLY(GBLREF ch_ret_type (*ch_at_trigger_init)();)
 LITREF  gtmImageName            gtmImageNames[];
-
-void gtm_levl_ret_code(void);
 
 error_def(ERR_ACTLSTTOOLONG);
 error_def(ERR_CALLINAFTERXIT);
@@ -182,6 +171,9 @@ error_def(ERR_SYSCALL);
  * and any other mv_stents no longer needed. This macro saves the current value of fgncal_stack on the M stack in an
  * MVST_STCK_SP type mv_stent. Note MVST_STCK_SP is chosen (instead of MVST_STCK) because MVST_STCK_SP doesn't get removed
  * if the frame is rewritten by a ZGOTO for instance.
+ *
+ * Note: If call-in's use of setjmp/longjmp for returns is changed to use the trigger method of actually unwinding the M
+ * frames and returning "normally", then the usage of fgncal_stack likely becomes superfluous so should be looked at.
  */
 # define SAVE_FGNCAL_STACK								\
 {											\
@@ -192,7 +184,7 @@ error_def(ERR_SYSCALL);
 	}										\
 }
 
-static callin_entry_list* get_entry(const char *call_name)
+static callin_entry_list* get_entry(const char* call_name)
 {	/* Lookup in a hashtable for entry corresponding to routine name */
 	ht_ent_str      *callin_entry;
 	stringkey       symkey;
@@ -212,16 +204,15 @@ int gtm_cij(const char *c_rtn_name, char **arg_blob, int count, int *arg_types, 
 {
 	boolean_t		need_rtnobj_shm_free;
 	callin_entry_list	*entry;
-	int4			*lnr_tab_ent;
 	mstr			label, routine;
 	int			has_return, i, len;
 	rhdtyp          	*base_addr;
-	char			*xfer_addr;
 	uint4			inp_mask, out_mask, mask;
 	mval			arg_mval, *arg_ptr;
 	enum gtm_types		arg_type;
 	gtm_string_t		*mstr_parm;
 	parmblk_struct 		param_blk;
+	void 			op_extcall(), op_extexfun(), flush_pio(void);
 	volatile int		*save_var_on_cstack_ptr;	/* Volatile to match global var type */
 	int			status;
 	boolean_t 		added;
@@ -243,7 +234,7 @@ int gtm_cij(const char *c_rtn_name, char **arg_blob, int count, int *arg_types, 
 		send_msg_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_CALLINAFTERXIT);
 		return ERR_CALLINAFTERXIT;
 	}
-	if (!gtm_startup_active || !(frame_pointer->type & SFT_CI))
+	if (!gtm_startup_active || !(frame_pointer->flags & SFF_CI))
 	{
 		if ((status = gtm_init()) != 0)		/* Note - sets fgncal_stack */
 			return status;
@@ -284,20 +275,18 @@ int gtm_cij(const char *c_rtn_name, char **arg_blob, int count, int *arg_types, 
 	/* See comment in ojstartchild.c about "need_rtnobj_shm_free". It is not used here because we will
 	 * decrement rtnobj reference counts at exit time in relinkctl_rundown (called by gtm_exit_handler).
 	 */
-	if (!job_addr(&routine, &label, 0, (char **)&base_addr, &xfer_addr, &need_rtnobj_shm_free))
+	if (!job_addr(&routine, &label, 0, (char **)&base_addr, NULL, &need_rtnobj_shm_free))
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_JOBLABOFF);
-	/* Thejob_addr() call above has done a zlink of the routine we want to drive if needed and has give us
-	 * the routine header and execution address we need. But it did not do an autorelink check so do that now
-	 * before we put these values into a stackframe as this call may change what is needing to go there.
+	memset(&param_blk, 0, SIZEOF(param_blk));
+	param_blk.rtnaddr = (void *)(ARLINK_ONLY(0) NON_ARLINK_ONLY(base_addr));
+	/* lnr_entry below is a pointer to the code offset for this label from the
+	 * beginning of text base(on USHBIN platforms) or from the beginning of routine
+	 * header (on NON_USHBIN platforms).
+	 * On NON_USHBIN platforms -- 2nd argument to EXTCALL is this pointer
+	 * On USHBIN -- 2nd argument to EXTCALL is the pointer to this pointer (&lnr_entry)
 	 */
-	explicit_relink_check(base_addr, TRUE);
-	if (base_addr != (TABENT_PROXY).rtnhdr_adr)
-	{	/* Routine was re-loaded - recompute execution address as well */
-		base_addr = (TABENT_PROXY).rtnhdr_adr;
-		lnr_tab_ent = find_line_addr(base_addr, &label, 0, NULL);
-		xfer_addr = (char *)LINE_NUMBER_ADDR(base_addr, lnr_tab_ent);
-	}
-	/* Fill in the param_blk to be passed to push_parm_ci() to set up routine arguments (if any) */
+	/* Assign the address for line number entry storage, so that the adjacent address holds has_parms value. */
+	param_blk.labaddr = (void *)(ARLINK_ONLY(-1) NON_ARLINK_ONLY(&(TABENT_PROXY).LABENT_LNR_OFFSET));
 	if (MAX_ACTUALS < entry->argcnt)
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_MAXACTARG);
 	if (entry->argcnt < count)
@@ -333,7 +322,7 @@ int gtm_cij(const char *c_rtn_name, char **arg_blob, int count, int *arg_types, 
 		 * constants declared in GTMContainerType class in gtmji.jar: 0 for GTMBoolean, 1 for GTMInteger, and so on.
 		 */
 		arg_mval.mvtype = MV_XZERO;
-		switch(entry->parms[i])
+		switch (entry->parms[i])
 		{
 			case gtm_jboolean:
 				CHECK_FOR_TYPE_MISMATCH(i + 1, 0, *java_arg_type);
@@ -406,27 +395,20 @@ int gtm_cij(const char *c_rtn_name, char **arg_blob, int count, int *arg_types, 
 		}
 		param_blk.args[i] = push_lvval(&arg_mval);
 	}
-	/* Need to create the new stackframe this call will run in. Any mv_stents created on this frame's behalf by
-	 * push_parm_ci() or op_bindparm() will pop when this frame pops. All those mv_stents created above as part
-	 * of argument processing will stick around to be used in argument output processing once the call returns.
-	 */
-#	ifdef HAS_LITERAL_SECT
-	new_stack_frame(base_addr, (unsigned char *)LINKAGE_ADR(base_addr), (unsigned char *)xfer_addr);
-#	else
-	/* Any platform that does not follow pv-based linkage model either
-	 *	(1) uses the following calculation to determine the context pointer value, or
-	 *	(2) doesn't need a context pointer
-	 * Such platforms are not currently supported by YottaDB (Linux32 and Cygwin32 fall in this category)
-	 */
-	assertpro(FALSE);
-#	endif
 	param_blk.mask = out_mask;
-	push_parm_ci(dollar_truth, &param_blk);		/* Set up the parameter block for op_bindparm() in callee */
+	param_blk.ci_rtn = (!has_return && param_blk.argcnt <= 0)
+		? (void (*)())CODE_ADDRESS_TYPE(op_extcall)
+		: (void (*)())CODE_ADDRESS_TYPE(op_extexfun);
+	/* The params block needs to be saved and restored across multiple GT.M environments. So, instead of storing it
+	 * explicitely, setting the global param_list to point to local param_blk will do the job.
+	 */
+	param_list = &param_blk;
 	old_intrpt_state = intrpt_ok_state;
 	intrpt_ok_state = INTRPT_OK_TO_INTERRUPT;	/* Reset interrupt state for the new M session. */
 	save_var_on_cstack_ptr = var_on_cstack_ptr;
 	var_on_cstack_ptr = NULL;			/* Reset var_on_cstack_ptr for the new M environment. */
-	assert(frame_pointer->old_frame_pointer->type & SFT_CI);
+	assert(frame_pointer->flags & SFF_CI);
+	frame_pointer->mpc = frame_pointer->ctxt = PTEXT_ADR(frame_pointer->rvector);
 	REVERT;						/* Revert gtmci_ch. */
 	/*				*/
 	/* Drive the call_in routine	*/
@@ -473,8 +455,8 @@ int gtm_cij(const char *c_rtn_name, char **arg_blob, int count, int *arg_types, 
 		 * parameters that are not modified by the M routine.
 		 */
 		if (MV_ON(mask, arg_ptr))
-		{	/* Process all output (O/IO) and return parameters modified by the M routine */
-			switch(arg_type)
+		{	/* Process all output (O/IO) parameters modified by the M routine */
+			switch (arg_type)
 			{
 				case gtm_jboolean:
 					CHECK_FOR_RET_TYPE_MISMATCH(i, 0, *arg_types);
@@ -534,17 +516,16 @@ int gtm_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 	boolean_t		need_rtnobj_shm_free;
 	va_list			var;
 	callin_entry_list	*entry;
-	int4			*lnr_tab_ent;
 	mstr			label, routine;
 	int			has_return, i;
 	rhdtyp          	*base_addr;
-	char			*xfer_addr;
 	uint4			inp_mask, out_mask, mask;
 	mval			arg_mval, *arg_ptr;
 	enum gtm_types		arg_type;
 	gtm_string_t		*mstr_parm;
 	char			*gtm_char_ptr;
 	parmblk_struct 		param_blk;
+	void 			op_extcall(), op_extexfun(), flush_pio(void);
 	volatile int		*save_var_on_cstack_ptr;	/* Volatile to match global var type */
 	int			status;
 	boolean_t 		added;
@@ -565,7 +546,7 @@ int gtm_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 		send_msg_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_CALLINAFTERXIT);
 		return ERR_CALLINAFTERXIT;
 	}
-	if (!gtm_startup_active || !(frame_pointer->type & SFT_CI))
+	if (!gtm_startup_active || !(frame_pointer->flags & SFF_CI))
 	{
 		if ((status = gtm_init()) != 0)		/* Note - sets fgncal_stack */
 			return status;
@@ -607,24 +588,23 @@ int gtm_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 	} else
 		entry = callin_handle;
 	lref_parse((unsigned char*)entry->label_ref.addr, &routine, &label, &i);
-	/* 3rd argument is NULL because we don't support a line offset from a label in call-ins. Also,
-	 * see comment in ojstartchild.c about "need_rtnobj_shm_free". It is not used here because we will
+	/* 3rd argument is NULL because we will get lnr_adr via TABENT_PROXY */
+	/* See comment in ojstartchild.c about "need_rtnobj_shm_free". It is not used here because we will
 	 * decrement rtnobj reference counts at exit time in relinkctl_rundown (called by gtm_exit_handler).
 	 */
-	if (!job_addr(&routine, &label, 0, (char **)&base_addr, &xfer_addr, &need_rtnobj_shm_free))
+	if (!job_addr(&routine, &label, 0, (char **)&base_addr, NULL, &need_rtnobj_shm_free))
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_JOBLABOFF);
-	/* Thejob_addr() call above has done a zlink of the routine we want to drive if needed and has give us
-	 * the routine header and execution address we need. But it did not do an autorelink check so do that now
-	 * before we put these values into a stackframe as this call may change what is needing to go there.
+	memset(&param_blk, 0, SIZEOF(param_blk));
+	param_blk.rtnaddr = (void *)(ARLINK_ONLY(0) NON_ARLINK_ONLY(base_addr));
+	/* lnr_entry below is a pointer to the code offset for this label from the
+	 * beginning of text base(on USHBIN platforms) or from the beginning of routine
+	 * header (on NON_USHBIN platforms).
+	 * On NON_USHBIN platforms -- 2nd argument to EXTCALL is this pointer
+	 * On USHBIN -- 2nd argument to EXTCALL is the pointer to this pointer (&lnr_entry)
+	 *
+	 * Assign the address for line number entry storage, so that the adjacent address holds has_parms value.
 	 */
-	explicit_relink_check(base_addr, TRUE);
-	if (base_addr != (TABENT_PROXY).rtnhdr_adr)
-	{	/* Routine was re-loaded - recompute execution address as well */
-		base_addr = (TABENT_PROXY).rtnhdr_adr;
-		lnr_tab_ent = find_line_addr(base_addr, &label, 0, NULL);
-		xfer_addr = (char *)LINE_NUMBER_ADDR(base_addr, lnr_tab_ent);
-	}
-	/* Fill in the param_blk to be passed to push_parm_ci() to set up routine arguments (if any) */
+	param_blk.labaddr = (void *)(ARLINK_ONLY(-1) NON_ARLINK_ONLY(&(TABENT_PROXY).LABENT_LNR_OFFSET));
 	param_blk.argcnt = entry->argcnt;
 	if (MAX_ACTUALS < param_blk.argcnt)
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_MAXACTARG);
@@ -645,7 +625,7 @@ int gtm_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 		arg_mval.mvtype = MV_XZERO;
 		if (MASK_BIT_ON(mask))
 		{ 	/* Output-only(O) params : advance va_arg pointer */
-			switch(entry->parms[i])
+			switch (entry->parms[i])
 			{
 				case gtm_int:
 					va_arg(var, gtm_int_t);
@@ -693,7 +673,7 @@ int gtm_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 			}
 		} else
 		{ 	/* I/IO params: create mval for each native type param */
-			switch(entry->parms[i])
+			switch (entry->parms[i])
 			{
                                 case gtm_int:
                                         i2mval(&arg_mval, va_arg(var, gtm_int_t));
@@ -778,27 +758,21 @@ int gtm_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 		param_blk.args[i] = push_lvval(&arg_mval);
 	}
 	va_end(var);
-	/* Need to create the new stackframe this call will run in. Any mv_stents created on this frame's behalf by
-	 * push_parm_ci() or op_bindparm() will pop when this frame pops. All those mv_stents created above as part
-	 * of argument processing will stick around to be used in argument output processing once the call returns.
-	 */
-#	ifdef HAS_LITERAL_SECT
-	new_stack_frame(base_addr, (unsigned char *)LINKAGE_ADR(base_addr), (unsigned char *)xfer_addr);
-#	else
-	/* Any platform that does not follow pv-based linkage model either
-	 *	(1) uses the following calculation to determine the context pointer value, or
-	 *	(2) doesn't need a context pointer
-	 * Such platforms are not currently supported by YottaDB (Linux32 and Cygwin32 fall in this category)
-	 */
-	assertpro(FALSE);
-#	endif
 	param_blk.mask = out_mask;
-	push_parm_ci(dollar_truth, &param_blk);		/* Set up the parameter block for op_bindparm() in callee */
+	param_blk.ci_rtn = (!has_return && param_blk.argcnt <= 0)
+		? (void (*)())CODE_ADDRESS_TYPE(op_extcall)
+		: (void (*)())CODE_ADDRESS_TYPE(op_extexfun);
+	/* The params block needs to be stored & restored across multiple
+	 * gtm environments. So instead of storing explicitely, setting the
+	 * global param_list to point to local param_blk will do the job.
+	 */
+	param_list = &param_blk;
 	old_intrpt_state = intrpt_ok_state;
-	intrpt_ok_state = INTRPT_OK_TO_INTERRUPT; 	/* Reset interrupt state for the new M session */
+	intrpt_ok_state = INTRPT_OK_TO_INTERRUPT; /* reset interrupt state for the new M session */
 	save_var_on_cstack_ptr = var_on_cstack_ptr;
-	var_on_cstack_ptr = NULL; 			/* Reset var_on_cstack_ptr for the new M environment */
-	assert(frame_pointer->old_frame_pointer->type & SFT_CI);
+	var_on_cstack_ptr = NULL; /* reset var_on_cstack_ptr for the new M environment */
+	assert(frame_pointer->flags & SFF_CI);
+	frame_pointer->mpc = frame_pointer->ctxt = PTEXT_ADR(frame_pointer->rvector);
 	REVERT; /* gtmci_ch */
 	/*				*/
 	/* Drive the call_in routine	*/
@@ -841,8 +815,8 @@ int gtm_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 		 * parameters that are not modified by the M routine.
 		 */
 		if (MV_ON(mask, arg_ptr))
-		{	/* Process all output (O/IO) and return parameters modified by the M routine */
-			switch(arg_type)
+		{	/* Process all output (O/IO) parameters modified by the M routine */
+			switch (arg_type)
 			{
                                 case gtm_int_star:
                                         *va_arg(temp_var, gtm_int_t *) = mval2i(arg_ptr);
@@ -882,7 +856,7 @@ int gtm_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 			}
 		} else
 		{
-			switch(arg_type)
+			switch (arg_type)
 			{
                                 case gtm_int_star:
                                         va_arg(temp_var, gtm_int_t *);
@@ -972,6 +946,7 @@ int gtm_jinit()
  */
 int gtm_init()
 {
+	rhdtyp          	*base_addr;
 	unsigned char   	*transfer_addr;
 	char			*dist;
 	int			dist_len;
@@ -1039,22 +1014,20 @@ int gtm_init()
 	if (!gtm_startup_active)
 	{	/* GT.M is not active yet. Create GT.M startup environment */
 		invocation_mode = MUMPS_CALLIN;
-		init_gtm();			/* Note - this initializes fgncal_stackbase and creates the call-in
-						 * base-frame for the initial level.
-						 */
+		init_gtm();			/* Note - this initializes fgncal_stackbase */
 		gtm_savetraps(); /* nullify default $ZTRAP handling */
 		assert(IS_VALID_IMAGE && (n_image_types > image_type));	/* assert image_type is initialized */
 		assert(gtm_startup_active);
-		assert(frame_pointer->type & SFT_CI);
+		assert(frame_pointer->flags & SFF_CI);
 		TREF(gtmci_nested_level) = 1;
 		/* Now that GT.M is initialized. Mark the new stack pointer (msp) so that errors
 		 * while executing an M routine do not unwind stack below this mark. It important that
-		 * the call-in frames (SFT_CI) that hold nesting information (eg. $ECODE/$STACK data
+		 * the call-in frames (SFF_CI) that hold nesting information (eg. $ECODE/$STACK data
 		 * of the previous stack) are kept from being unwound.
 		 */
 		SAVE_FGNCAL_STACK;
-	} else if (!(frame_pointer->type & SFT_CI))
-	{	/* Nested call-in: setup a new CI environment (additional SFT_CI base-frame).
+	} else if (!(frame_pointer->flags & SFF_CI))
+	{	/* Nested call-in: setup a new CI environment (SFF_CI frame on top of base-frame).
 		 * Temporarily mark the beginning of the new stack so that initialization errors in
 		 * call-in frame do not unwind entries of the previous stack (see gtmci_ch). For the
 		 * duration that temp_fgncal_stack has a non-NULL value, it overrides fgncal_stack.
@@ -1069,11 +1042,13 @@ int gtm_init()
 		 */
 		if (dollar_tlevel)
 			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_CITPNESTED);
-		base_frame(NULL);			/* Filled in later */
-		SET_CI_ENV(gtm_levl_ret_code);
+		base_addr = make_cimode();
+		transfer_addr = PTEXT_ADR(base_addr);
+		gtm_init_env(base_addr, transfer_addr);
+		SET_CI_ENV(ci_ret_code_exit);
 		gtmci_isv_save();
 		(TREF(gtmci_nested_level))++;
-		/* Now that the base-frame for this call-in level has been created, we can create the mv_stent
+		/* Now that the base-frames for this call-in level have been created, we can create the mv_stent
 		 * to save the previous call-in level's fgncal_stack value and clear the override. When this call-in
 		 * level pops, fgncal_stack will be restored to the value for the previous level. When a given call
 		 * at *this* level finishes, this current value of fgncal_stack is where the stack is unrolled to to
@@ -1087,7 +1062,7 @@ int gtm_init()
 	return 0;
 }
 
-/* Routine exposed to call-in user to exit from active GT.M environment */
+/* routine exposed to call-in user to exit from active GT.M environment */
 int gtm_exit()
 {
         DCL_THREADGBL_ACCESS;
@@ -1098,12 +1073,12 @@ int gtm_exit()
 	ESTABLISH_RET(gtmci_ch, mumps_status);
 	assert(NULL != frame_pointer);
 	/* Do not allow gtm_exit() to be invoked from external calls */
-	if (!(SFT_CI & frame_pointer->type) || !(MUMPS_CALLIN & invocation_mode) || (1 < TREF(gtmci_nested_level)))
+	if (!(SFF_CI & frame_pointer->flags) || !(MUMPS_CALLIN & invocation_mode) || (1 < TREF(gtmci_nested_level)))
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_INVGTMEXIT);
 	/* Now get rid of the whole M stack - end of GT.M environment */
 	while (NULL != frame_pointer)
 	{
-		while ((NULL != frame_pointer) && !(frame_pointer->type & SFT_CI))
+		while ((NULL != frame_pointer) && !(frame_pointer->flags & SFF_CI))
 		{
 #			ifdef GTM_TRIGGER
 			if (SFT_TRIGR & frame_pointer->type)
@@ -1114,7 +1089,7 @@ int gtm_exit()
 		}
 		if (NULL != frame_pointer)
 		{	/* unwind the current invocation of call-in environment */
-			assert(frame_pointer->type & SFT_CI);
+			assert(frame_pointer->flags & SFF_CI);
 			ci_ret_code_quit();
 		}
 	}
