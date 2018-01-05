@@ -312,6 +312,8 @@ case ${gtm_hostos}_${gtm_arch} in
         gtm_ftp_dirname="linux_x8664"
         ydb_flavor="x8664"
         gtm_install_flavor="x86_64" ;;
+    linux_armv6l)
+        ydb_flavor="armv6l" ;;
     linux_armv7l)
         ydb_flavor="armv7l" ;;
     solaris_sparc) # no Source Forge dirname

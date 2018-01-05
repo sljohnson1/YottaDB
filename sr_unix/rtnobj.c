@@ -890,7 +890,7 @@ void	rtnobj_shm_free(rhdtyp *rhead, boolean_t latch_grabbed)
 		shm_base = linkctl->rtnobj_shm_base[dbg_shm_index];
 		assert(NULL != shm_base);
 		shm_size = ((size_t)1 << (dbg_shm_index + MIN_RTNOBJ_SHM_INDEX));
-#		ifdef __armv7l__
+#		if defined(__armv6l__) || defined(__armv7l__)
 		if ((shm_base <= (uchar_ptr_t)rtnobj)
 		    && ((shm_base + shm_size) > (uchar_ptr_t)rtnobj))
 #		else

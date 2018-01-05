@@ -99,8 +99,12 @@ L69:
 	ldrb	r12, [r1, #mval_b_exp]
 	orr	r12, #69
 	strb	r12, [r1, #mval_b_exp]
-	movw	r6, #26215				/* Divide r4 by 10 - result in r6 */
-	movt	r6, #26214
+.ifdef __armv7l__
+	movw	r6, #0x6667				/* Divide r4 by 10 - result in r6 */
+	movt	r6, #0x6666
+.else	/* __armv6l__ */
+	ldr	r6, =0x66666667				/* magic constant for divide by 10 */
+.endif
 	smull	r2, r6, r4, r6
 	asr	r2, r6, #2
 	asr	r6, r4, #31
@@ -195,8 +199,12 @@ l69:
 	ldrb	r12, [r1, #mval_b_exp]
 	orr	r12, #69
 	strb	r12, [r1, #mval_b_exp]
-	movw	r6, #26215				/* Divide r4 by 10 - result in r6 */
-	movt	r6, #26214
+.ifdef __armv7l__
+	movw	r6, #0x6667				/* Divide r4 by 10 - result in r6 */
+	movt	r6, #0x6666
+.else	/* __armv6l__ */
+	ldr	r6, =0x66666667				/* magic constant for divide by 10 */
+.endif
 	smull	r2, r6, r4, r6
 	asr	r2, r6, #2
 	asr	r6, r4, #31

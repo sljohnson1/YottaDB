@@ -32,7 +32,7 @@
 #  include "hppa.h"
 #elif defined(__ia64)
 #  include "ia64.h"
-#elif defined(__armv7l__)
+#elif defined(__armv6l__) || defined(__armv7l__)
 #  include "arm.h"
 #endif
 
@@ -250,7 +250,7 @@ int dollar_quit(void)
 		} else
 			xfer_index = -1;
 	}
-#	elif defined(__armv7l__)
+#	elif defined(__armv6l__) || defined(__armv7l__)
 	{
 #		define	MAX_SKIP	10
 		int4	skip;

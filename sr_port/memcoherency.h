@@ -189,9 +189,16 @@
 /* On IA64, cross processor notifications of write barriers are automatic so no read barrier is necessary */
 #  define SHM_READ_MEMORY_BARRIER
 
+#elif defined(__armv6l__)
+
+  /* ############################### ARMV6L architecture ################################## */
+#  define SHM_WRITE_MEMORY_BARRIER	__asm__ volatile ("mcr p15, 0, r0, c7, c10, 5" : : : "memory")
+#  define SHM_READ_MEMORY_BARRIER	SHM_WRITE_MEMORY_BARRIER
+#  define MM_WRITE_MEMORY_BARRIER	SHM_WRITE_MEMORY_BARRIER
+
 #elif defined(__armv7l__)
 
-  /* ############################### ARM architecture ################################## */
+  /* ############################### ARMV7L architecture ################################## */
 
 #  define SHM_WRITE_MEMORY_BARRIER	__asm__ volatile ("dmb" ::: "memory")
 #  define SHM_READ_MEMORY_BARRIER	SHM_WRITE_MEMORY_BARRIER
