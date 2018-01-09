@@ -66,7 +66,22 @@ ENTRY op_exfun
 
 	ldr	r4, [lr]				/* verify the instruction immediately after return */
 	lsr	r4, r4, #24
-	cmp	r4, #0xea				/* the instruction is a branch */
+	cmp	r4, #0xea				/* The instruction is a short branch */
+	beq	inst_ok
+	/*
+	 * The instructions might be a long branch
+	 */
+	ldr	r4, [lr]
+	ldr	r12, =0xe1a0c00f			/* mov  r12, pc */
+	cmp	r4, r12
+	bne	error
+	ldr	r4, [lr, #4]
+	ldr	r12, =0xe51f4000			/* ldr  r4, [pc] */
+	cmp	r4, r12
+	bne	error
+	ldr	r4, [lr, #8]
+	ldr	r12, =0xea000000			/* b  pc */
+        cmp     r4, r12
 	beq	inst_ok
 error:
 	ldr	r1, =ERR_GTMCHECK
