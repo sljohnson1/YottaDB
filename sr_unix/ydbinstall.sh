@@ -319,6 +319,8 @@ case ${gtm_hostos}_${gtm_arch} in
         ydb_flavor="armv6l" ;;
     linux_armv7l)
         ydb_flavor="armv7l" ;;
+    linux_aarch64)
+        ydb_flavor="aarch64" ;;
     solaris_sparc) # no Source Forge dirname
         gtm_ftp_dirname="sun"
         ydb_flavor="sparc"
