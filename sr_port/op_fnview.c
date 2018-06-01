@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
@@ -79,9 +79,9 @@ GBLREF int4		zdir_form;
 GBLREF boolean_t	badchar_inhibit;
 GBLREF boolean_t	gvdupsetnoop; /* if TRUE, duplicate SETs update journal but not database blocks */
 GBLREF int		gv_fillfactor;
-GBLREF int4		gtm_max_sockets;
+GBLREF int4		ydb_max_sockets;
 GBLREF gv_key		*gv_currkey;
-GBLREF boolean_t	is_gtm_chset_utf8;
+GBLREF boolean_t	is_ydb_chset_utf8;
 GBLREF int4		gtm_trigger_depth;
 GBLREF uint4		process_id;
 GBLREF boolean_t	dmterm_default;
@@ -131,7 +131,7 @@ void	op_fnview(int numarg, mval *dst, ...)
 	unsigned char	buff[MAX_ZWR_KEY_SZ];
 	collseq		*csp;
 	gd_binding	*map, *start_map, *end_map;
-	gd_region	*reg, *reg_start;
+	gd_region	*reg, *reg_start, *statsDBreg;
 	gv_key		*gvkey;
 	gv_namehead	temp_gv_target;
 	gvnh_reg_t	*gvnh_reg;
@@ -257,9 +257,9 @@ void	op_fnview(int numarg, mval *dst, ...)
 			dst->str = tmpstr;
 			break;
 		case VTK_FULLBOOL:
-			switch (TREF(gtm_fullbool))
+			switch (TREF(ydb_fullbool))
 			{
-				case GTM_BOOL:
+				case YDB_BOOL:
 					tmpstr.addr = GTM_BOOL_RES;
 					tmpstr.len = SIZEOF(GTM_BOOL_RES)-1;
 					break;
@@ -272,7 +272,7 @@ void	op_fnview(int numarg, mval *dst, ...)
 					tmpstr.len = SIZEOF(WRN_BOOL_RES)-1;
 					break;
 				default:
-					assertpro(FALSE && TREF(gtm_fullbool));
+					assertpro(FALSE && TREF(ydb_fullbool));
 			}
 			dst->str = tmpstr;
 			break;
@@ -573,7 +573,7 @@ void	op_fnview(int numarg, mval *dst, ...)
 			csa = &FILE_INFO(parmblk.gv_ptr)->s_addrs;
 			if (NULL != csa->hdr)
 			{
-				ENSURE_STP_FREE_SPACE(n_gvstats_rec_types * (STATS_MAX_DIGITS + STATS_KEYWD_SIZE));
+				ENSURE_STP_FREE_SPACE(n_gvstats_rec_types * (STATS_MAX_DIGITS + STATS_KEYWD_SIZE) + 1);
 				dst->str.addr = (char *)stringpool.free;
 				/* initialize cnl->gvstats_rec.db_curr_tn field from file header */
 				csa->nl->gvstats_rec.db_curr_tn = csa->hdr->trans_hist.curr_tn;
@@ -581,8 +581,11 @@ void	op_fnview(int numarg, mval *dst, ...)
 #				include "tab_gvstats_rec.h"
 #				undef TAB_GVSTATS_REC
 				assert(stringpool.free < stringpool.top);
-				/* subtract one to remove extra trailing delimiter */
-				dst->str.len = INTCAST((char *)stringpool.free - dst->str.addr - 1);
+				if ((RDBF_NOSTATS & csa->reservedDBFlags) && !(RDBF_NOSTATS & csa->hdr->reservedDBFlags))
+					*(stringpool.free - 1) = '?';	/* mark as questionable */
+				else
+					stringpool.free--;		/* subtract one to remove extra trailing delimiter */
+				dst->str.len = INTCAST((char *)stringpool.free - dst->str.addr);
 			} else
 				dst->str.len = 0;
 			break;
@@ -741,7 +744,7 @@ void	op_fnview(int numarg, mval *dst, ...)
 			n = gv_fillfactor;
 			break;
 		case VTK_MAXSOCKETS:
-			n = gtm_max_sockets;
+			n = ydb_max_sockets;
 			break;
 		case VTK_LVCREF:
 			lv = (lv_val *)parmblk.value;
@@ -778,7 +781,22 @@ void	op_fnview(int numarg, mval *dst, ...)
 			n = dmterm_default;
 			break;
 		case VTK_STATSHARE:
-			n = TREF(statshare_opted_in) ? TRUE : FALSE;
+			if (!(n = (NO_STATS_OPTIN != TREF(statshare_opted_in))) || (NULL == parmblk.gv_ptr)) /* WARNING assign */
+				break;							/* no optin or no region specified */
+			assert(gd_header);
+			if (!(n = parmblk.gv_ptr->open))
+			{
+				if (ALL_STATS_OPTIN != TREF(statshare_opted_in))
+					break;						/* not open and not all_optin */
+				gv_init_reg(parmblk.gv_ptr, NULL);
+			}
+			csa = &FILE_INFO(parmblk.gv_ptr)->s_addrs;
+			assert(NULL != csa->hdr);
+			if (!(n = !(RDBF_NOSTATS & csa->reservedDBFlags)))
+				break;							/* region not doing statshare */
+			BASEDBREG_TO_STATSDBREG((gd_region *)parmblk.gv_ptr, statsDBreg);
+			csa = &FILE_INFO(statsDBreg)->s_addrs;
+			n = csa->statsDB_setup_completed;
 			break;
 		case VTK_ENVIRONMENT:
 			trigdepth = gtm_trigger_depth;

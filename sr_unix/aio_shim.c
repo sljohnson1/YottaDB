@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2016-2017 Fidelity National Information	*
+ * Copyright (c) 2016-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
@@ -223,7 +223,11 @@ STATICFNDCL int io_getevents_internal(aio_context_t ctx)
 		num_ios += ret;
 		for (i = 0; i < ret; ++i)
 		{
+#			ifdef __i386
+			aiocbp = (struct aiocb *)(unsigned long)event[i].obj;
+#			else
 			aiocbp = (struct aiocb *)event[i].obj;
+#			endif
 			if (0 <= event[i].res)
 				AIOCBP_SET_FLDS(aiocbp, event[i].res, event[i].res2);
 			/* res < 0 means LIBAIO is providing a negated errno through
@@ -334,7 +338,7 @@ STATICFNDCL int	aio_shim_setup(aio_context_t *ctx)
 
 	SETUP_THREADGBL_ACCESS;
 	/* initialize num_requests from the environment variable or otherwise */
-	nr_events = TREF(gtm_aio_nr_events);
+	nr_events = TREF(ydb_aio_nr_events);
 	/* We try io_setup() in a loop, and each failed attempt we reduce the amount of space
 	 * we're asking for. If there is no space to give, just return -1 EAGAIN
 	 */

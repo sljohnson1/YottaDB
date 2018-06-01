@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -105,6 +108,7 @@ GBLREF	int4			tstart_trigger_depth;
 GBLREF	mval			dollar_ztslate;
 LITREF	mval			literal_null;
 #endif
+GBLREF	int4			tstart_gtmci_nested_level;
 #ifdef VMS
 GBLREF	boolean_t		tp_has_kill_t_cse; /* cse->mode of kill_t_write or kill_t_create got created in this transaction */
 #endif
@@ -113,27 +117,26 @@ GBLREF	sgmnt_addrs		*reorg_encrypt_restart_csa;
 GBLREF	uint4			update_trans;
 #endif
 
-#define NORESTART -1
-#define ALLLOCAL  -2
 #define TP_STACK_SIZE ((TP_MAX_NEST + 1) * SIZEOF(tp_frame))	/* Size of TP stack frame with no-overflow pad */
 
-void	op_tstart(int implicit_flag, ...) /* value of $T when TSTART */
+void	op_tstart(int tstart_flag, ...) /* value of $T when TSTART */
 {
 	boolean_t		serial;			/* whether SERIAL keyword was present */
+	boolean_t		do_presloop;
 	int			prescnt,		/* number of names to save, -1 = no restart, -2 = preserve all */
 				pres, len;
 	char			*ptr;
 	lv_val			*lv;
 	mlk_pvtblk		*pre_lock;
 	mlk_tp			*lck_tp;
-	mval			*preserve,		/* list of names to save */
+	mval			*preserve, *preserve_array,	/* list of names to save */
 				*tid,			/* transaction id */
 				*mvname;
 	mv_stent		*mv_st_ent, *mvst_tmp, *mvst_prev;
 	stack_frame		*fp, *fp_fix;
 	tp_frame		*tf;
 	unsigned char		*old_sp, *top, *tstack_ptr, *ptrstart, *ptrend, *ptrinvalidbegin;
-	va_list			varlst, lvname;
+	va_list			varlst;
 	tp_region		*tr, *tr_next;
 	sgm_info		*si;
 	tlevel_info		*tli, *new_tli, *prev_tli;
@@ -150,16 +153,19 @@ void	op_tstart(int implicit_flag, ...) /* value of $T when TSTART */
 	boolean_t		tphold_noshift = FALSE, implicit_tstart;
 	lv_val			**lvarraycur = NULL, **lvarray = NULL, **lvarraytop, **lvptr;
 	GTMTRIG_ONLY(boolean_t	implicit_trigger;)
+#	ifdef DEBUG
+	va_list			lvname;
+#	endif
 	DCL_THREADGBL_ACCESS;
 
 	SETUP_THREADGBL_ACCESS;
 	assert(NULL == reorg_encrypt_restart_csa);
-	implicit_tstart = 0 != (implicit_flag & IMPLICIT_TSTART);
-	GTMTRIG_ONLY(implicit_trigger = 0 != (implicit_flag & IMPLICIT_TRIGGER_TSTART));
+	implicit_tstart = 0 != (tstart_flag & IMPLICIT_TSTART);
+	GTMTRIG_ONLY(implicit_trigger = 0 != (tstart_flag & IMPLICIT_TRIGGER_TSTART));
 	GTMTRIG_ONLY(assert(!implicit_trigger || (implicit_trigger && implicit_tstart)));
 #	if ((defined(GTM_TRIGGER) && defined(DEBUG_TRIGR)) || defined(DEBUG_REFCNT))
-	DBGFPF((stderr, "\n\nop_tstart: Entered - dollar_tlevel: %d, implicit_flag: %d, mpc: 0x"lvaddr"\n", dollar_tlevel,
-		implicit_flag, frame_pointer->mpc));
+	DBGFPF((stderr, "\n\nop_tstart: Entered - dollar_tlevel: %d, tstart_flag: %d, mpc: 0x"lvaddr"\n", dollar_tlevel,
+		tstart_flag, frame_pointer->mpc));
 #	endif
 	assert(dollar_tlevel || implicit_tstart || !update_trans);
 	if (implicit_tstart)
@@ -192,8 +198,8 @@ void	op_tstart(int implicit_flag, ...) /* value of $T when TSTART */
 	if (0 != jnl_fence_ctl.level)
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_TPMIXUP, 2, "An M", "a fenced logical");
 	if (dollar_tlevel + 1 >= TP_MAX_NEST)
-		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_TPTOODEEP);
-	va_start(varlst, implicit_flag);	/* no argument count first */
+		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(3) ERR_TPTOODEEP, 1, TP_MAX_NEST - 1);
+	va_start(varlst, tstart_flag);	/* no argument count first */
 	serial = va_arg(varlst, int);
 	tid = va_arg(varlst, mval *);
 	prescnt = va_arg(varlst, int);
@@ -267,6 +273,7 @@ void	op_tstart(int implicit_flag, ...) /* value of $T when TSTART */
 				/* should have been NULL almost always except for a small window in gvcst_put/gvcst_kill */
 			tstart_trigger_depth = gtm_trigger_depth; /* note down what trigger depth an outermost tstart occurs in */
 		)
+		tstart_gtmci_nested_level = TREF(gtmci_nested_level);
 		memset(tcom_record.jnl_tid, 0, TID_STR_SIZE);
 		if (0 != tid->str.len)
 		{
@@ -305,17 +312,6 @@ void	op_tstart(int implicit_flag, ...) /* value of $T when TSTART */
 	}
 	/* Either cw_stagnate has not been initialized at all or previous-non-TP or tp_hist should have done CWS_RESET */
 	assert((0 == cw_stagnate.size) || cw_stagnate_reinitialized);
-	if (prescnt > 0)
-	{
-		VAR_COPY(lvname, varlst);
-		for (pres = 0;  pres < prescnt;  ++pres)
-		{
-			preserve = va_arg(lvname, mval *);
-			assert(MV_IS_STRING(preserve));		/* Check if this loop can be eliminated */
-			MV_FORCE_STR(preserve);
-		}
-		va_end(lvname);
-	}
 	if (NULL == gd_header)
 		gvinit();
 	assert(NULL != gd_header);
@@ -329,7 +325,6 @@ void	op_tstart(int implicit_flag, ...) /* value of $T when TSTART */
 		msp -= shift_size;
 		if (msp <= stackwarn)
 		{
-			va_end(varlst);
 			if (msp <= stacktop)
 			{
 				msp = old_sp;
@@ -488,22 +483,46 @@ void	op_tstart(int implicit_flag, ...) /* value of $T when TSTART */
 	{
 		tf->implicit_tstart = implicit_tstart;
 		GTMTRIG_ONLY(tf->implicit_trigger = implicit_trigger);
+		tf->ydb_tp_s_tstart = (0 != (tstart_flag & YDB_TP_S_TSTART));
 	} else
 	{
 		tf->implicit_tstart = tp_pointer->implicit_tstart;
 		GTMTRIG_ONLY(tf->implicit_trigger = tp_pointer->implicit_trigger);
+		tf->ydb_tp_s_tstart = tp_pointer->ydb_tp_s_tstart;
 	}
 	GTMTRIG_ONLY(tf->cannot_commit = FALSE;)
 	tf->vars = (tp_var *)NULL;
 	tf->old_tp_frame = tp_pointer;
 	tp_pointer = tf;
+	assert(ALLLOCAL < 0);
+	assert(LISTLOCAL < 0);
+#	ifdef DEBUG
 	if (prescnt > 0)
 	{
-		DBGRFCT((stderr, "\nop_tstart: Beginning processing of varname parameters\n"));
 		VAR_COPY(lvname, varlst);
 		for (pres = 0;  pres < prescnt;  ++pres)
 		{
 			preserve = va_arg(lvname, mval *);
+			assert(MV_IS_STRING(preserve));		/* Check if this loop can be eliminated */
+		}
+		va_end(lvname);
+	}
+#	endif
+	if (LISTLOCAL == prescnt)
+	{
+		prescnt = va_arg(varlst, int);
+		preserve_array = va_arg(varlst, mval *);
+	} else
+		preserve_array = NULL;
+	if (prescnt > 0)
+	{
+		DBGRFCT((stderr, "\nop_tstart: Beginning processing of varname parameters\n"));
+		for (pres = 0;  pres < prescnt;  ++pres)
+		{
+			if (NULL == preserve_array)
+				preserve = va_arg(varlst, mval *);
+			else
+				preserve = &preserve_array[pres];
 			/* Note: the assumption (according to the comment below) is that this mval points into the literal table
 			 * and thus could not possibly be undefined. In that case, I do not understand why the earlier loop to
 			 * do MV_FORCE_STR on these variables. Future todo -- verify if that loop is needed. On the assumption
@@ -542,7 +561,6 @@ void	op_tstart(int implicit_flag, ...) /* value of $T when TSTART */
 				}
 			}
 		}
-		va_end(lvname);
 		DBGRFCT((stderr, "\nop_tstart: Completed processing of varname parameters\n"));
 	} else if (ALLLOCAL == prescnt)
 	{	/* Preserve all variables */

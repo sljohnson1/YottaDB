@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -32,7 +35,7 @@
 						   the desired size to provide glorious amounts of backfill for \
 						   overrun checking. */
 #define GDL_DumpOnStackOFlow	0x00000400	/* (1024) When get a stack overflow or out-of-memory error, generate a core */
-#define GDL_ZSHOWDumpOnSignal	0x00000800	/* (2048) Don't supress GTM_FATAL file creation when get a signal */
+#define GDL_ZSHOWDumpOnSignal	0x00000800	/* (2048) Don't supress YDB_FATAL file creation when get a signal */
 #define GDL_PrintIndCacheStats	0x00001000	/* (4096) Print indirect cacheing stats */
 #define GDL_PrintCacheStats	0x00002000	/* (8192) Print stats on $Piece and UTF8 cacheing (debug only) */
 #define GDL_DebugCompiler	0x00004000	/* (16384) Turn on compiler debugging */
@@ -44,4 +47,5 @@
 #define GDL_IgnoreAvailSpace	0x00100000	/* (1048576) Allow gdsfilext/mu_cre_file (UNIX) to ignore available space */
 #define GDL_PrintPMAPStats	0x00200000	/* (2097152) Print process memory map on exit (using pmap or procmap utility) */
 #define GDL_AllowLargeMemcpy	0x00400000	/* (4194304) Bypass the 1GB sanity check in gtm_memcpy_validate_and_execute() */
+#define GDL_UseSystemMalloc	0x80000000	/* (1879048192) Use the system's malloc(), disabling all the above GDL_Sm options */
 #endif

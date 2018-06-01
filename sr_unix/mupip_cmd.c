@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -428,6 +431,7 @@ static	CLI_ENTRY	mup_journal_qual[] = {
 { "RESYNC",            mupip_recover, 0, 0,                     0,                     0, 0, VAL_REQ,        1, NON_NEG, VAL_NUM, 0 },
 { "ROLLBACK",          mupip_recover, 0, 0,                     0,                     0, 0, VAL_DISALLOWED, 1, NON_NEG, VAL_N_A, 0 },
 { "RSYNC_STRM",        mupip_recover, 0, 0,                     0,                     0, 0, VAL_REQ,        1, NON_NEG, VAL_NUM, 0 },
+{ "SEQNO",             mupip_recover, 0, 0,                     0,                     0, 0, VAL_REQ,        1, NON_NEG, VAL_STR, 0 },
 { "SHOW",              mupip_recover, 0, mup_jnl_show_parm,     mup_jnl_show_qual,     0, 0, VAL_NOT_REQ,    1, NON_NEG, VAL_STR, 0 },
 { "SINCE",             mupip_recover, 0, 0,                     0,                     0, 0, VAL_REQ,        1, NON_NEG, VAL_STR, 0 },
 { "TRANSACTION",       mupip_recover, 0, 0,                     mup_trans_qual,        0, 0, VAL_REQ,        1, NON_NEG, VAL_STR, 0 },
@@ -720,9 +724,10 @@ static	CLI_ENTRY	mup_set_qual[] = {
 { "PARTIAL_RECOV_BYPASS", mupip_set, 0, 0,			0,				0, 0, VAL_DISALLOWED, 1, NON_NEG, VAL_N_A,  0 },
 { "PREVJNLFILE",          mupip_set, 0, 0,			0,				0, 0, VAL_REQ,        1, NEG,     VAL_STR,  0 },
 { "QDBRUNDOWN",           mupip_set, 0, 0,			0,				0, 0, VAL_DISALLOWED, 1, NEG,     VAL_N_A,  0 },
-{ "READ_ONLY",            mupip_set, 0, 0,                  0,                    0, 0, VAL_DISALLOWED, 1, NEG,     VAL_N_A,  0 },
+{ "READ_ONLY",            mupip_set, 0, 0,                      0,                              0, 0, VAL_DISALLOWED, 1, NEG,     VAL_N_A,  0 },
 { "RECORD_SIZE",          mupip_set, 0, 0,			0,				0, 0, VAL_REQ,        1, NON_NEG, VAL_NUM,  0 },
 { "REGION",               mupip_set, 0, 0,			0,				0, 0, VAL_DISALLOWED, 1, NON_NEG, VAL_N_A,  0 },
+{ "REORG_SLEEP_NSEC",     mupip_set, 0, 0,			0,				0, 0, VAL_REQ,        1, NON_NEG, VAL_NUM,  VAL_DCM },
 { "REPLICATION",          mupip_set, 0, 0,			mup_repl_qual,			0, 0, VAL_REQ,        1, NEG,     VAL_STR,  0 },
 { "REPL_STATE",           mupip_set, 0, 0,			0,				0, 0, VAL_REQ,        1, NEG,     VAL_STR,  0 },
 { "RESERVED_BYTES",       mupip_set, 0, 0,			0,				0, 0, VAL_REQ,        1, NON_NEG, VAL_NUM,  0 },

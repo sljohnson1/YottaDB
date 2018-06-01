@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -30,7 +33,6 @@
 #include "gt_timer.h"
 #include "copy.h"
 #include "iottdef.h"
-#include "iomtdef.h"
 #include "iormdef.h"
 #include "mupip_io_dev_dispatch.h"
 #include "eintr_wrappers.h"
@@ -85,7 +87,7 @@ int mu_op_open(mval *v, mval *p, mval *t, mval *mspace)
 		if (!licensed || LP_CONFIRM(lid,lkid)==LP_NOTACQ)
 			licensed= FALSE ;
 #		endif
-		switch (stat = TRANS_LOG_NAME(&v->str, &tn, &buf1[0], SIZEOF(buf1), dont_sendmsg_on_log2long))
+		switch (stat = trans_log_name(&v->str, &tn, &buf1[0], SIZEOF(buf1), dont_sendmsg_on_log2long))
 		{
 		case SS_NORMAL:
 			tl = get_log_name(&tn, INSERT);

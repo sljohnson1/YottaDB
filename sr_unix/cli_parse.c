@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -41,6 +44,7 @@
 														\
 		TAREF1(parm_ary_len, PARM_ARY_INDEX) = TAREF1(parm_str_len, PARM_ARY_INDEX);			\
 	}													\
+	assert(NULL != (TAREF1(parm_ary, PARM_ARY_INDEX))); /* 4SCA: parm_ary_len ensure this */		\
 }
 
 #if MAX_OPT_LEN > MAX_LINE
@@ -588,7 +592,7 @@ boolean_t cli_get_sub_quals(CLI_ENTRY *pparm)
 		while (NULL != ptr_next_val)
 		{
 			len_str= STRLEN(ptr_next_val);
-			strncpy(tmp_str, ptr_next_val, len_str);
+			memcpy(tmp_str, ptr_next_val, len_str);
 			tmp_str[len_str] = 0;
 			tmp_str_ptr = tmp_str;
 			ptr_next_comma = strchr(tmp_str_ptr, ',');

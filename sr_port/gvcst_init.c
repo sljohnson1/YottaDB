@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -46,7 +46,6 @@
 #include "error.h"
 #include "gt_timer.h"
 #include "trans_log_name.h"
-#include "gtm_logicals.h"
 #include "dbfilop.h"
 #include "set_num_additional_processors.h"
 #include "have_crit.h"
@@ -89,12 +88,17 @@ MBSTART {														\
 	int		fn_len;												\
 	char		*fn;												\
 	boolean_t	do_crypt_init;											\
+	boolean_t	shoulda_crypt_init;											\
 	DEBUG_ONLY(boolean_t	was_gtmcrypt_initialized = gtmcrypt_initialized);					\
 															\
 	do_crypt_init = ((USES_ENCRYPTION(CSD->is_encrypted)) && !IS_LKE_IMAGE && CSA->encr_ptr				\
 				&& (GTMCRYPT_INVALID_KEY_HANDLE == (CSA)->encr_key_handle)				\
 				&& !(CSA->encr_ptr->issued_db_init_crypt_warning)					\
 				&& (CSA->encr_ptr->reorg_encrypt_cycle == CSA->nl->reorg_encrypt_cycle));		\
+	/* Concurrent REORG ENCRYPT has invalidated previously acquired key information */				\
+	shoulda_crypt_init = ((USES_ENCRYPTION(CSD->is_encrypted)) && !IS_LKE_IMAGE && CSA->encr_ptr			\
+				&& (GTMCRYPT_INVALID_KEY_HANDLE == (CSA)->encr_key_handle)				\
+				&& !(CSA->encr_ptr->issued_db_init_crypt_warning));					\
 	if (do_crypt_init)												\
 	{														\
 		assert(was_gtmcrypt_initialized);									\
@@ -111,7 +115,22 @@ MBSTART {														\
 				GTMCRYPT_REPORT_ERROR(MAKE_MSG_WARNING(init_status), gtm_putmsg, fn_len, fn);		\
 				CSA->encr_ptr->issued_db_init_crypt_warning = TRUE;					\
 			}												\
+		} else if (0 != init_status)										\
+		{ /* CSA->encr_ptr cannot be trusted */									\
+			memset(CSA->encr_ptr, 0, SIZEOF(enc_info_t));							\
+			CSA->encr_ptr->reorg_encrypt_cycle = -1;							\
+			/* Send the warning to syslog, which does not count as issued_db_init_crypt_warning */		\
+			GTMCRYPT_REPORT_ERROR(MAKE_MSG_WARNING(init_status), send_msg, fn_len, fn);			\
 		}													\
+	} else if (shoulda_crypt_init)											\
+	{ /* CSA->encr_ptr cannot be trusted */										\
+		memset(CSA->encr_ptr, 0, SIZEOF(enc_info_t));								\
+		CSA->encr_ptr->reorg_encrypt_cycle = -1;                                               			\
+		assert(was_gtmcrypt_initialized);									\
+		fn = (char *)(REG->dyn.addr->fname);									\
+		fn_len = REG->dyn.addr->fname_len;									\
+		/* Send the warning to syslog, which does not count as issued_db_init_crypt_warning */			\
+		GTMCRYPT_REPORT_ERROR(SET_CRYPTERR_MASK(ERR_ENCRYPTCONFLT2), send_msg, fn_len, fn);			\
 	}														\
 } MBEND
 
@@ -188,6 +207,7 @@ error_def(ERR_DBROLLEDBACK);
 error_def(ERR_DBVERPERFWARN1);
 error_def(ERR_DBVERPERFWARN2);
 error_def(ERR_DRVLONGJMP);	/* Generic internal only error used to drive longjump() in a queued condition handler */
+error_def(ERR_ENCRYPTCONFLT2);
 error_def(ERR_INVSTATSDB);
 error_def(ERR_MMNODYNUPGRD);
 error_def(ERR_REGOPENFAIL);
@@ -363,7 +383,7 @@ void gvcst_init(gd_region *reg, gd_addr *addr)
 				return;
 			}
 			/* At this point, the baseDB is open but the statsDB is not automatically opened. This is possible if
-			 *	a) TREF(statshare_opted_in) is FALSE. In that case, this call to "gvcst_init" is coming through
+			 *	a) TREF(statshare_opted_in) is NO. In that case, this call to "gvcst_init" is coming through
 			 *		a direct reference to the statsDB (e.g. ZWR ^%YGS). OR
 			 *	b) baseDBreg->was_open is TRUE. In that case, the statsDB open would have been short-circuited
 			 *		in "gvcst_init".
@@ -373,7 +393,7 @@ void gvcst_init(gd_region *reg, gd_addr *addr)
 			 *		would silently adjust gld map entries so they do not point to this statsDB anymore
 			 *		(NOSTATS should already be set in the baseDB in this case, assert that).
 			 */
-			if (TREF(statshare_opted_in) && !baseDBreg->was_open)
+			if ((NO_STATS_OPTIN != TREF(statshare_opted_in)) && !baseDBreg->was_open)
 			{
 				assert(RDBF_NOSTATS & baseDBreg->reservedDBFlags);
 				return;
@@ -483,7 +503,7 @@ void gvcst_init(gd_region *reg, gd_addr *addr)
 										 * in "gvcst_init_autoDB_ch".
 										 */
 			ESTABLISH(gvcst_init_autoDB_ch);
-			if (!ftok_sem_lock(baseDBreg, FALSE))
+			if (!ftok_sem_lock(baseDBreg, IMMEDIATE_FALSE))
 			{
 				assert(FALSE);
 				rts_error_csa(CSA_ARG(baseDBcsa) VARLSTCNT(4) ERR_DBFILERR, 2, DB_LEN_STR(baseDBreg));
@@ -839,6 +859,12 @@ void gvcst_init(gd_region *reg, gd_addr *addr)
 			reg->jnl_before_image = csd->jnl_before_image;
 			reg->dyn.addr->asyncio = csd->asyncio;
 			reg->dyn.addr->read_only = csd->read_only;
+			/* reg->read_only would have already been set to TRUE or FALSE depending on the file permissions.
+			 * Now check if the READ_ONLY flag in the db file header is TRUE, if so set reg->read_only also
+			 * to TRUE (just like is done in "db_init").
+			 */
+			if (csd->read_only)
+				reg->read_only = TRUE;
 			assert(csa->reservedDBFlags == csd->reservedDBFlags);	/* Should be same already */
 			SYNC_RESERVEDDBFLAGS_REG_CSA_CSD(reg, csa, csd, ((node_local_ptr_t)NULL));
 			SET_REGION_OPEN_TRUE(reg, WAS_OPEN_TRUE);
@@ -1021,7 +1047,7 @@ void gvcst_init(gd_region *reg, gd_addr *addr)
 	INIT_DEFERRED_DB_ENCRYPTION_IF_NEEDED(reg, csa, csd);
 	/* gds_rundown if invoked from now on will take care of cleaning up the shared memory segment */
 	/* The below code, until the ENABLE_INTERRUPTS(INTRPT_IN_GVCST_INIT, prev_intrpt_state), can do mallocs which in turn
-	 * can issue a GTM-E-MEMORY error which would invoke rts_error. Hence these have to be done AFTER the
+	 * can issue a YDB-E-MEMORY error which would invoke rts_error. Hence these have to be done AFTER the
 	 * DBG_MARK_RTS_ERROR_USABLE call. Since these are only private memory initializations, it is safe to
 	 * do these after reg->open is set. Any rts_errors from now on still do the needful cleanup of shared memory in
 	 * gds_rundown since reg->open is already TRUE.
@@ -1226,7 +1252,7 @@ void gvcst_init(gd_region *reg, gd_addr *addr)
 		cs_addrs_list = csa;
 		/* Also update tp_reg_list fid_index's as insert_region relies on it */
 		for (tr = tp_reg_list; NULL != tr; tr = tr->fPtr)
-			tr->file.fid_index = (&FILE_INFO(tr->reg)->s_addrs)->fid_index;
+			tr->fid_index = (&FILE_INFO(tr->reg)->s_addrs)->fid_index;
 		DBG_CHECK_TP_REG_LIST_SORTING(tp_reg_list);
 		TREF(max_fid_index) = max_fid_index;
 	}
@@ -1300,7 +1326,7 @@ void gvcst_init(gd_region *reg, gd_addr *addr)
 	 */
 	if (!IS_DSE_IMAGE)
 	{	/* DSE does not open statsdb automatically. It does it only when asked to */
-		if (TREF(statshare_opted_in))
+		if (NO_STATS_OPTIN != TREF(statshare_opted_in))
 		{
 			if (!is_statsDB)
 			{	/* This is a baseDB - so long as NOSTATS is *not* turned on, we should initialize the statsDB */

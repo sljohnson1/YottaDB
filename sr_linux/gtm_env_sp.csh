@@ -3,10 +3,10 @@
 # Copyright (c) 2001-2017 Fidelity National Information		#
 # Services, Inc. and/or its subsidiaries. All rights reserved.	#
 #								#
-# Copyright (c) 2017,2018 YottaDB LLC. and/or its subsidiaries.	#
+# Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.	#
 # All rights reserved.						#
 #								#
-# Copyright (c) 2017,2018 Stephen L Johnson.			#
+# Copyright (c) 2017-2018 Stephen L Johnson.			#
 # All rights reserved.						#
 #								#
 #	This source code contains the intellectual property	#
@@ -151,7 +151,7 @@ if ( $?gtm_version_change == "1" ) then
 #	on Cygwin, -ansi defines __STRICT_ANSI__ which suppresses many prototypes
 		setenv gt_cc_options_common     "-c "
 	else
-		setenv gt_cc_options_common     "-c -ansi "
+		setenv gt_cc_options_common     "-c -std=c99 "
 	endif
 
 	if ( "armv6l" == $mach_type ) then
@@ -261,8 +261,7 @@ if ( $?gtm_version_change == "1" ) then
 
 	# -M		generate link map onto standard output
 	setenv	gt_ld_options_common	"-Wl,-M"
-	setenv 	gt_ld_options_yottadb	"-Wl,-u,accumulate -Wl,-u,is_big_endian -Wl,-u,to_ulong"
-	setenv 	gt_ld_options_yottadb	"$gt_ld_options_yottadb -Wl,-u,gtm_filename_to_id -Wl,--version-script,yottadb_symbols.export"
+	setenv 	gt_ld_options_yottadb	"-Wl,--version-script,yottadb_symbols.export"
 	setenv 	gt_ld_options_all_exe	"-rdynamic -Wl,-u,gtm_filename_to_id -Wl,-u,gtm_zstatus"
 	setenv	gt_ld_options_all_exe	"$gt_ld_options_all_exe -Wl,--version-script,ydbexe_symbols.export"
 

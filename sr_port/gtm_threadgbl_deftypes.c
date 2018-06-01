@@ -3,6 +3,9 @@
  * Copyright (c) 2010-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -92,6 +95,7 @@
 #include "util.h"		/* for util_outbuff manipulations */
 #include "nametabtyp.h"
 #include "localvarmonitor.h"
+#include "libyottadb_int.h"
 
 /* FOR REPLICATION RELATED GLOBALS */
 #include "repl_msg.h"
@@ -114,10 +118,6 @@
 #endif
 
 #include "jnl_typedef.h"
-
-#ifdef VMS
-# include "gtm_logicals.h"	/* for GTM_MEMORY_NOACCESS_COUNT */
-#endif
 
 #include "gds_blk_upgrade.h"	/* for UPGRADE_IF_NEEDED flag */
 #include "cws_insert.h"		/* for CWS_REORG_ARRAYSIZE */

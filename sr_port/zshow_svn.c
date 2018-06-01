@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -59,7 +59,7 @@
 #define ZS_ONE_OUT(V,TEXT) 	((V)->len = 1, (V)->addr = (TEXT), zshow_output(output,V))
 #define ZS_VAR_EQU(V,TEXT) 	((V)->len = SIZEOF(TEXT) - 1, (V)->addr = TEXT, \
 				 zshow_output(output,(V)), ZS_ONE_OUT((V),equal_text))
-				/* PATH_MAX + "->" + GTM-W-ZDIROUTOFSYNC, <text of ZDIROUTOFSYNC> */
+				/* PATH_MAX + "->" + YDB-W-ZDIROUTOFSYNC, <text of ZDIROUTOFSYNC> */
 #define ZDIR_ERR_LEN		((3 * GTM_MAX_DIR_LEN) + 128)
 
 
@@ -139,6 +139,7 @@ static readonly char ztwormhole_text[] = "$ZTWORMHOLE";
 #endif
 static readonly char zusedstor_text[] = "$ZUSEDSTOR";
 static readonly char zversion_text[] = "$ZVERSION";
+static readonly char zreldate_text[] = "$ZRELDATE";
 static readonly char zyerror_text[] = "$ZYERROR";
 static readonly char zyrelease_text[] = "$ZYRELEASE";
 static readonly char zonlnrlbk_text[] = "$ZONLNRLBK";
@@ -150,7 +151,7 @@ GBLREF mval		dollar_zdir;
 GBLREF mval		dollar_zproc;
 GBLREF stack_frame	*frame_pointer;
 GBLREF io_pair		io_curr_device;
-GBLREF io_pair		*io_std_device;
+GBLREF io_pair		io_std_device;
 GBLREF io_log_name	*io_root_log_name;
 GBLREF io_log_name	*dollar_principal;
 GBLREF mval		dollar_zgbldir;
@@ -191,6 +192,8 @@ GBLREF mstr		dollar_zpout;
 LITREF mval		literal_zero, literal_one, literal_null;
 LITREF char		gtm_release_name[];
 LITREF int4		gtm_release_name_len;
+LITREF char		ydb_release_stamp[];
+LITREF int4		ydb_release_stamp_len;
 LITREF char		ydb_release_name[];
 LITREF int4		ydb_release_name_len;
 
@@ -629,7 +632,7 @@ void zshow_svn(zshow_out *output, int one_sv)
 				break;
 		/* CAUTION: fall through */
 		case SV_ZPIN:
-			if (io_std_device->in != io_std_device->out)
+			if (io_std_device.in != io_std_device.out)
 			{	/* ZPIN != ZPOUT print it */
 				ZWRITE_SPLIT_DOLLAR_P(var, zdir_error, ZDIR_ERR_LEN, x, dollar_zpin, principalin_text, output);
 			} else if (SV_ALL != one_sv)
@@ -648,7 +651,7 @@ void zshow_svn(zshow_out *output, int one_sv)
 				break;
 		/* CAUTION: fall through */
 		case SV_ZPOUT:
-			if (io_std_device->in != io_std_device->out)
+			if (io_std_device.in != io_std_device.out)
 			{	/* ZPOUT != ZPIN print it */
 				ZWRITE_SPLIT_DOLLAR_P(var, zdir_error, ZDIR_ERR_LEN, x, dollar_zpout, principalout_text, output);
 			} else if (SV_ALL != one_sv)
@@ -685,6 +688,14 @@ void zshow_svn(zshow_out *output, int one_sv)
 			count = (int)totalRmalloc;	/* WARNING: downcasting possible 64bit value to 32bits */
 			MV_FORCE_UMVAL(&var, (unsigned int)count);
 			ZS_VAR_EQU(&x, zrealstor_text);
+			mval_write(output, &var, TRUE);
+			if (SV_ALL != one_sv)
+				break;
+		case SV_ZRELDATE:
+			var.mvtype = MV_STR;
+			var.str.addr = (char *)ydb_release_stamp;
+			var.str.len = ydb_release_stamp_len;
+			ZS_VAR_EQU(&x, zreldate_text);
 			mval_write(output, &var, TRUE);
 			if (SV_ALL != one_sv)
 				break;

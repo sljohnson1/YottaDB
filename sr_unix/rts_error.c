@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -32,11 +35,13 @@
 #include "anticipatory_freeze.h"
 #include "toktyp.h"
 #include "cgp.h"
+#include "stack_frame.h"
 
 GBLREF	boolean_t 	created_core;
 GBLREF	boolean_t	dont_want_core;
 GBLREF	boolean_t	run_time;
 GBLREF	char		cg_phase;
+GBLREF	stack_frame	*frame_pointer;
 GBLREF	gd_region	*gv_cur_region;
 GBLREF	jnlpool_addrs_ptr_t	jnlpool;
 GBLREF	int		gtm_errno;
@@ -64,7 +69,7 @@ int rts_error_va(void *csa, int argcnt, va_list var);
  *  =======	zero MUST be specified if there are no parameters.
  * ----------------------------------------------------------------------------------------
  */
-
+/* coverity[+kill] */
 int rts_error(int argcnt, ...)
 {
 	va_list		var;
@@ -78,6 +83,7 @@ int rts_error(int argcnt, ...)
 	return rts_error_va(csa, argcnt, var);
 }
 
+/* coverity[+kill] */
 int rts_error_csa(void *csa, int argcnt, ...)
 {
 	va_list		var;

@@ -3,7 +3,7 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -295,7 +295,7 @@ error_def(ERR_SVNOSET);
 #endif
 
 #ifdef DEBUG
-#	 define COMPDBG(x)	if (gtmDebugLevel & GDL_DebugCompiler) {x}
+#	 define COMPDBG(x)	if (ydbDebugLevel & GDL_DebugCompiler) {x}
 #else
 #	 define COMPDBG(x)
 #endif
@@ -366,7 +366,7 @@ typedef struct
 }
 
 /* note assignment below */
-#define SHIFT_SIDE_EFFECTS	((TREF(saw_side_effect) = TREF(shift_side_effects)) && (GTM_BOOL == TREF(gtm_fullbool)))
+#define SHIFT_SIDE_EFFECTS	((TREF(saw_side_effect) = TREF(shift_side_effects)) && (YDB_BOOL == TREF(ydb_fullbool)))
 
 #define INITIAL_SIDE_EFFECT_DEPTH 33	/* initial allocation for expression nesting to track side effects */
 
@@ -377,8 +377,8 @@ typedef struct
 	if (TREF(shift_side_effects))									\
 	{												\
 		TREF(saw_side_effect) = TRUE;								\
-		if (!run_time && (FULL_BOOL_WARN == TREF(gtm_fullbool)))				\
-		{	/* warnings requested by by gtm_fullbool and enabled by eval_expr */		\
+		if (!run_time && (FULL_BOOL_WARN == TREF(ydb_fullbool)))				\
+		{	/* warnings requested by by ydb_fullbool and enabled by eval_expr */		\
 			show_source_line(TRUE);								\
 			dec_err(VARLSTCNT(1) ERR_BOOLSIDEFFECT);					\
 		}											\

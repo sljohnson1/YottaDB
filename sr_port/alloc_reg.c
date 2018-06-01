@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -30,7 +33,7 @@ GBLDEF int4			sa_temps_offset[VALUED_REF_TYPES];
 
 GBLREF int			mvmax;
 GBLREF triple			t_orig;
-GBLREF uint4			gtmDebugLevel;
+GBLREF uint4			ydbDebugLevel;
 GBLREF command_qualifier  	cmd_qlf;
 
 LITDEF int4 sa_class_sizes[VALUED_REF_TYPES] =
@@ -107,7 +110,7 @@ void alloc_reg(void)
 				 */
 				for (c = temphigh[TVAL_REF]; 0 <= c; c--)
 				{
-					assert((GTM_BOOL != TREF(gtm_fullbool)) || (0 == tempcont[TVAL_REF][c]));
+					assert((YDB_BOOL != TREF(ydb_fullbool)) || (0 == tempcont[TVAL_REF][c]));
 					tempcont[TVAL_REF][c] = 0;	/* prevent leaking TVAL temps */
 				}
 				if (OC_LINESTART == opc)

@@ -32,7 +32,7 @@ foreach(lang ${languages})
 endforeach()
 
 # Defaults
-set(version r110)
+set(version r123)
 
 # If CMAKE_BUILD_TYPE is not defined make it a Release build
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
@@ -209,6 +209,7 @@ set_source_list(gtcm_shmclean    gtcm_shmclean dlopen_libyottadb)
 set_source_list(gtmsecshr        gtmsecshr_wrapper)
 set_source_list(gtmsecshr_real   gtmsecshr)
 set_source_list(libgtmcrypt      gtmcrypt_ref gtmcrypt_pk_ref gtmcrypt_dbk_ref gtmcrypt_sym_ref gtmcrypt_util)
+set_source_list(libgtmcrypt      ydb_getenv minimal_gbldefs)
 set_source_list(libgtmtls        gtm_tls_impl gtmcrypt_util)
 set_source_list(libyottadb       gtm_main mupip_main mupip_cmd dse_main dse_cmd lke_main lke_cmd)
 set_source_list(libyottadb       gtcm_play_main omi_srvc_xct omi_extstr)
@@ -216,6 +217,7 @@ set_source_list(libyottadb       gtcm_server_main gtcm_gnp_server_main gtcm_gnp_
 set_source_list(libyottadb       dbcertify_main dbcertify_cmd ftok_main)
 set_source_list(lke              lke dlopen_libyottadb)
 set_source_list(maskpass         maskpass gtmcrypt_util)
+set_source_list(maskpass         ydb_getenv minimal_gbldefs)
 set_source_list(mumps            gtm dlopen_libyottadb)
 set_source_list(mupip            mupip dlopen_libyottadb)
 set_source_list(semstat2         semstat2)
@@ -223,7 +225,7 @@ set_source_list(semstat2         semstat2)
 #-----------------------------------------------------------------------------
 # libmumps gets leftover sources, so compute the remaining list.
 set(source_used_dtgbldir 1) # exclude unused source
-set(libmumps_SOURCES "")
+set_source_list(libmumps ydb_getenv minimal_gbldefs)
 foreach(d ${gt_src_list})
   foreach(s ${sources_${d}})
     get_filename_component(snoext ${s} NAME_WE)
@@ -262,7 +264,7 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND}
     -D ydb_dist=${gen_bootstrap_dist}
     -D gtm_tools=${YDB_SOURCE_DIR}/sr_port
-    -D gtmroutines=.
+    -D ydb_routines=.
     -D mumps=${gen_bootstrap_mumps}
     -D "args=${mumps_ttt_args}"
     -D output_file=ttt.log
@@ -289,7 +291,7 @@ foreach(msg
     COMMAND ${CMAKE_COMMAND}
       -D ydb_dist=${gen_bootstrap_dist}
       -D gtm_tools=${YDB_SOURCE_DIR}/sr_port
-      -D gtmroutines=.
+      -D ydb_routines=.
       -D mumps=${gen_bootstrap_mumps}
       -D "args=${mumps_msg_args}"
       -P ${YDB_SOURCE_DIR}/sr_unix/mumps.cmake
@@ -406,6 +408,8 @@ add_executable(geteuid			${geteuid_SOURCES})
 target_link_libraries(geteuid		libmumps)	# needed for few functions (e.g. gtm_printf etc.)
 
 add_executable(gtmsecshr		${gtmsecshr_SOURCES})
+target_link_libraries(gtmsecshr		libmumps)	# needed for static linking since this is a setuid executable
+							# and does not do a dlopen of libyottadb.so
 
 add_executable(gtmsecshr_real		${gtmsecshr_real_SOURCES})
 set_target_properties(gtmsecshr_real PROPERTIES
@@ -544,11 +548,16 @@ foreach(f
       gtmcrypt_util.h
       import_and_sign_key.sh
       maskpass.c
+      minimal_gbldefs.c
       pinentry-gtm.sh
       pinentry.m
       show_install_config.sh
+      ydb_getenv.c
+      ydb_getenv.h
+      ydb_logicals.h
+      ydb_logicals_tab.h
     )
-  set(f_in "${YDB_SOURCE_DIR}/sr_unix/${f}")
+  set(f_in "${YDB_SOURCE_DIR}/*/${f}")
   string(REGEX REPLACE ".mk$" "" f_mod "${f}")
   set(f_out "${YDB_BINARY_DIR}/plugin/gtmcrypt/${f_mod}")
   add_custom_command(
@@ -616,23 +625,23 @@ file(GLOB m_files_sr_i386 RELATIVE ${YDB_SOURCE_DIR}/sr_i386 ${YDB_SOURCE_DIR}/s
 file(GLOB mpt_files_sr_port RELATIVE ${YDB_SOURCE_DIR}/sr_port ${YDB_SOURCE_DIR}/sr_port/*.mpt)
 file(GLOB mpt_files_sr_unix RELATIVE ${YDB_SOURCE_DIR}/sr_unix ${YDB_SOURCE_DIR}/sr_unix/*.mpt)
 
-set(gtm_chset_dir_ "")
-set(gtm_chset_dir_UTF-8 "/utf8")
+set(ydb_chset_dir_ "")
+set(ydb_chset_dir_UTF-8 "/utf8")
 
 foreach(d ${gt_src_list})
   foreach(m ${m_files_${d}})
     get_filename_component(m_name "${m}" NAME_WE)
     string(TOUPPER "${m_name}" m_upper)
     if("${m}" MATCHES "^gde")
-      foreach(gtm_chset "" "UTF-8")
-        set(m_out "${YDB_BINARY_DIR}${gtm_chset_dir_${gtm_chset}}/${m_upper}.m")
+      foreach(ydb_chset "" "UTF-8")
+        set(m_out "${YDB_BINARY_DIR}${ydb_chset_dir_${ydb_chset}}/${m_upper}.m")
         add_custom_command(
           OUTPUT "${m_out}"
           DEPENDS ${YDB_SOURCE_DIR}/${d}/${m}
           COMMAND ${CMAKE_COMMAND} -E copy ${YDB_SOURCE_DIR}/${d}/${m} "${m_out}"
           )
         list(APPEND files_to_place "${m_out}")
-        list(APPEND gtm_chset_routines_${gtm_chset} "${m_out}")
+        list(APPEND ydb_chset_routines_${ydb_chset} "${m_out}")
       endforeach()
     else()
       if(";${m_name};" MATCHES ";GTMDefinedTypesInit[a-zA-Z]*;")
@@ -676,6 +685,8 @@ foreach(f
   gtmgblstat.xc
   gtmxc_types.h
   libyottadb.h
+  libydberrors.h
+  libydberrors2.h
   main_pragma.h
   arch.gtc
   gtcm_run.gtc
@@ -725,7 +736,7 @@ if(ICUCONFIG)
   if(icu_failed)
     message(FATAL_ERROR "Command\n ${ICUCONFIG} --version\nfailed (${icu_failed}).")
   elseif("x${icu_version}" MATCHES "^x([0-9]+\\.[0-9]+)")
-    set(gtm_icu_version "${CMAKE_MATCH_1}")
+    set(ydb_icu_version "${CMAKE_MATCH_1}")
   else()
     message(FATAL_ERROR "Command\n ${ICUCONFIG} --version\nproduced unrecognized output:\n ${icu_version}")
   endif()
@@ -760,8 +771,8 @@ else()
   message(FATAL_ERROR "Unable to find 'locale'.  Set LOCALECFG in CMake cache.")
 endif()
 
-foreach(gtm_chset "" "UTF-8")
-  foreach(in ${gtm_chset_routines_${gtm_chset}})
+foreach(ydb_chset "" "UTF-8")
+  foreach(in ${ydb_chset_routines_${ydb_chset}})
     string(REPLACE ".m" ".o" out "${in}")
     get_filename_component(out_dir "${out}" PATH)
     add_custom_command(
@@ -769,9 +780,9 @@ foreach(gtm_chset "" "UTF-8")
       DEPENDS ${in} ${YDB_SOURCE_DIR}/sr_unix/mumps.cmake mumps
       COMMAND ${CMAKE_COMMAND}
         -D ydb_dist=${YDB_BINARY_DIR}
-        -D gtmroutines=.
-        -D gtm_chset=${gtm_chset}
-        -D gtm_icu_version=${gtm_icu_version}
+        -D ydb_routines=.
+        -D ydb_chset=${ydb_chset}
+        -D ydb_icu_version=${ydb_icu_version}
         -D LC_ALL=${LC_ALL}
         -D mumps=$<TARGET_FILE:mumps>
         -D "args=${in}"
@@ -780,7 +791,7 @@ foreach(gtm_chset "" "UTF-8")
       VERBATIM
       )
     list(APPEND files_to_place ${out})
-    install(FILES "${out}" DESTINATION ${YDB_INSTALL_DIR}${gtm_chset_dir_${gtm_chset}})
+    install(FILES "${out}" DESTINATION ${YDB_INSTALL_DIR}${ydb_chset_dir_${ydb_chset}})
   endforeach()
 endforeach()
 
@@ -805,8 +816,8 @@ Halt")
                  ${YDB_BINARY_DIR}/${help}help.in2)
   set(env
     -D ydb_dist=${YDB_BINARY_DIR}
-    -D gtmroutines=.
-    -D gtmgbldir=${YDB_BINARY_DIR}/${help}help
+    -D ydb_routines=.
+    -D ydb_gbldir=${YDB_BINARY_DIR}/${help}help
     )
   add_custom_command(
     OUTPUT ${help}help.dat ${help}help.gld
@@ -838,8 +849,8 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy GTMDefinedTypesInit${CMAKE_BUILD_TYPE}.m ${YDB_BINARY_DIR}/GTMDefinedTypesInit.m
   COMMAND ${CMAKE_COMMAND}
     -D ydb_dist=${YDB_BINARY_DIR}
-    -D gtmroutines=.
-    -D gtmgbldir=${YDB_BINARY_DIR}/gtmhelp
+    -D ydb_routines=.
+    -D ydb_gbldir=${YDB_BINARY_DIR}/gtmhelp
     -D mumps=$<TARGET_FILE:mumps>
     -D "args=-run;GTMDEFINEDTYPESTODB"
     -P ${YDB_SOURCE_DIR}/sr_unix/mumps.cmake
@@ -856,8 +867,8 @@ exit")
                  ${YDB_BINARY_DIR}/${help}help.in3)
   set(env
     -D ydb_dist=${YDB_BINARY_DIR}
-    -D gtmroutines=.
-    -D gtmgbldir=${YDB_BINARY_DIR}/${help}help
+    -D ydb_routines=.
+    -D ydb_gbldir=${YDB_BINARY_DIR}/${help}help
     )
   add_custom_command(
     OUTPUT ${YDB_BINARY_DIR}/${help}help.dat_ro
@@ -881,8 +892,8 @@ exit")
                  ${YDB_BINARY_DIR}/${help}help.in4)
   set(env
     -D ydb_dist=${YDB_BINARY_DIR}
-    -D gtmroutines=.
-    -D gtmgbldir=${YDB_BINARY_DIR}/${help}help
+    -D ydb_routines=.
+    -D ydb_gbldir=${YDB_BINARY_DIR}/${help}help
     )
   add_custom_command(
     OUTPUT ${YDB_BINARY_DIR}/${help}help.dat_noro
@@ -926,3 +937,11 @@ endforeach()
 
 add_custom_target(place_files ALL DEPENDS ${files_to_place})
 add_custom_target(make_read_only ALL DEPENDS ${targets_to_run} place_files)
+
+#-----------------------------------------------------------------------------
+# Get the current build time and pass it as a macro to a C program (release_name.h)
+string(TIMESTAMP BUILD_TIMESTAMP "%Y%m%d %H:%M")
+
+# Make the build timestamp available to a C program (release_name.h)
+add_definitions("-DYDB_RELEASE_STAMP=\"${BUILD_TIMESTAMP}\"")
+

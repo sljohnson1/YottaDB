@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2016 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -16,15 +19,9 @@
 
 #include <stdlib.h>
 
-#ifndef __CYGWIN__
-#  define GETENV	getenv
-#else
-char *gtm_getenv(char *varname);
-#  define GETENV 	gtm_getenv
-#endif
-#define ATOI		atoi
-#define ATOL		atol
-#define ATOF		atof
+#define ATOI	atoi
+#define ATOL	atol
+#define ATOF	atof
 
 #ifdef UNIX
 /* If interrupted, this function has previously caused hangs to do a subsequent syslog() invocation from generic_signal_handler(),
@@ -51,10 +48,6 @@ char *gtm_getenv(char *varname);
 # if INT_MAX < LONG_MAX	/* like Tru64 */
 #  define STRTO64L	strtol
 #  define STRTOU64L	strtoul
-# elif defined(__hpux)
-#  include <inttypes.h>
-#  define STRTO64L	strtoimax
-#  define STRTOU64L	strtoumax
 # else
 #  define STRTO64L	strtoll
 #  define STRTOU64L	strtoull
@@ -67,12 +60,13 @@ char *gtm_getenv(char *varname);
 	mkstemp_res = mkstemp(template);				\
 	ENABLE_INTERRUPTS(INTRPT_IN_MKSTEMP, prev_intrpt_state);	\
 }
-# if defined(VMS) || defined(STATIC_ANALYSIS)
+# if defined(STATIC_ANALYSIS)
 #  define SYSTEM	system
 # else
 #  define SYSTEM	gtm_system
    int gtm_system(const char *cmdline);
 # endif
+int gtm_system_internal(const char *sh, const char *opt, const char *rtn, const char *cmdline);
 
 void gtm_image_exit(int status);
 

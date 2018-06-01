@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -49,7 +52,6 @@
 #include "repl_msg.h"
 #include "repl_errno.h"
 #include "repl_dbg.h"
-#include "gtm_logicals.h"
 #include "eintr_wrappers.h"
 #include "repl_sp.h"
 #include "repl_log.h"
@@ -63,7 +65,7 @@
 
 #define MAX_ATTEMPTS_FOR_FETCH_RESYNC	60 /* max-wait in seconds for source server response after connection is established */
 #define MAX_WAIT_FOR_FETCHRESYNC_CONN	60 /* max-wait in seconds to establish connection with the source server */
-#define FETCHRESYNC_PRIMARY_POLL	(MICROSEC_IN_SEC - 1) /* micro seconds, almost 1 second */
+#define FETCHRESYNC_PRIMARY_POLL	(MICROSECS_IN_SEC - 1) /* micro seconds, almost 1 second */
 
 #define CHECK_SEND_RECV_LOOP_ERROR(STATUS, WAIT_COUNT, MESSAGE)									\
 {																\

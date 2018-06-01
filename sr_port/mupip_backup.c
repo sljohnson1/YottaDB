@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
@@ -77,12 +77,11 @@
 #include "wcs_backoff.h"
 #include "wcs_sleep.h"
 #include "wcs_flu.h"
-#include "trans_log_name.h"
+#include "ydb_trans_log_name.h"
 #include "shmpool.h"
 #include "mupip_backup.h"
 #include "gvcst_protos.h"	/* for gvcst_init prototype */
 #include "add_inter.h"
-#include "gtm_logicals.h"
 #include "gtm_c_stack_trace.h"
 #include "have_crit.h"
 #include "repl_sem.h"
@@ -147,7 +146,6 @@ error_def(ERR_FILEPARSE);
 error_def(ERR_FREEZECTRL);
 error_def(ERR_JNLCREATE);
 error_def(ERR_JNLDISABLE);
-error_def(ERR_JNLFILOPN);
 error_def(ERR_JNLFNF);
 error_def(ERR_JNLNOCREATE);
 error_def(ERR_JNLPOOLSETUP);
@@ -238,7 +236,7 @@ void mupip_backup(void)
 				tempnam_prefix[MAX_FN_LEN], tempdir_full_buffer[MAX_FN_LEN + 1];
 	char			*jnl_str_ptr, jnl_str[256], entry[256], prev_jnl_fn[JNL_NAME_SIZE];
 	int			index, jnl_fstat;
-	mstr			tempdir_log, tempdir_trans, *file, *rfile, *replinstfile, tempdir_full, filestr;
+	mstr			tempdir_trans, *file, *rfile, *replinstfile, tempdir_full, filestr;
 	uint4			jnl_status, temp_file_name_len, tempdir_trans_len, trans_log_name_status;
 	boolean_t		jnl_options[jnl_end_of_list] = {FALSE, FALSE, FALSE}, save_no_prev_link;
 	jnl_private_control	*jpc;
@@ -258,7 +256,9 @@ void mupip_backup(void)
 	sgmnt_addrs		*csa;
 	repl_inst_hdr		repl_instance, *save_inst_hdr;
 	unsigned char		*cmdptr;
-	unsigned char 		command[(YDB_PATH_MAX) * 2 + 5]; /*2 files in the cmd, 5 == SIZEOF("cp") + 2 (space) + 1 (NULL)*/
+	/* UNALIAS + 2 files in the cmd, 5 == SIZEOF("cp") + 2 (space) + 1 (NULL)*/
+	unsigned char 		command[(STR_LIT_LEN(UNALIAS)) + (YDB_PATH_MAX) * 2 + 5];
+	char			cp_cmd[MAX_FN_LEN] = "cp ";
 	struct shmid_ds		shm_buf;
 	struct semid_ds		semstat;
 	union semun		semarg;
@@ -500,19 +500,14 @@ void mupip_backup(void)
 	tempdir_full.len = orig_buff_size;
 	if (TRUE == online)
 	{
-		tempdir_log.addr = GTM_BAK_TEMPDIR_LOG_NAME;
-		tempdir_log.len = STR_LIT_LEN(GTM_BAK_TEMPDIR_LOG_NAME);
-		trans_log_name_status =
-			TRANS_LOG_NAME(&tempdir_log, &tempdir_trans, tempdir_trans_buffer, SIZEOF(tempdir_trans_buffer),
-					do_sendmsg_on_log2long);
-		if ((SS_NORMAL != trans_log_name_status)
-		    || (NULL == tempdir_trans.addr) || (0 == tempdir_trans.len))
-		{	/* GTM_BAK_TEMPDIR_LOG_NAME not found, attempt GTM_BAK_TEMPDIR_LOG_NAME_UC instead */
-			tempdir_log.addr = GTM_BAK_TEMPDIR_LOG_NAME_UC;
-			tempdir_log.len = STR_LIT_LEN(GTM_BAK_TEMPDIR_LOG_NAME_UC);
-			trans_log_name_status =
-				TRANS_LOG_NAME(&tempdir_log, &tempdir_trans, tempdir_trans_buffer, SIZEOF(tempdir_trans_buffer),
-					       do_sendmsg_on_log2long);
+		trans_log_name_status = ydb_trans_log_name(YDBENVINDX_BAKTMPDIR, &tempdir_trans,
+								tempdir_trans_buffer, SIZEOF(tempdir_trans_buffer),
+								IGNORE_ERRORS_TRUE, NULL);
+		if ((SS_NORMAL != trans_log_name_status) || (NULL == tempdir_trans.addr) || (0 == tempdir_trans.len))
+		{	/* ydb_baktmpdir not found, attempt ydb_BAKTMPDIR instead */
+			trans_log_name_status = ydb_trans_log_name(YDBENVINDX_BAKTMPDIR_UC, &tempdir_trans,
+									tempdir_trans_buffer, SIZEOF(tempdir_trans_buffer),
+									IGNORE_ERRORS_TRUE, NULL);
 		}
 		/* save the length of the "base" so we can (restore it and) re-use the string in tempdir_trans.addr */
 		tempdir_trans_len = tempdir_trans.len;
@@ -823,7 +818,7 @@ void mupip_backup(void)
 		{
 			udi = FILE_INFO(jnlpool->jnlpool_dummy_reg);
 			assert(INVALID_SEMID != udi->ftok_semid);
-			if (!ftok_sem_lock(jnlpool->jnlpool_dummy_reg, FALSE))
+			if (!ftok_sem_lock(jnlpool->jnlpool_dummy_reg, IMMEDIATE_FALSE))
 			{
 				gtm_putmsg_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_JNLPOOLSETUP);
 				error_mupip = TRUE;
@@ -1029,9 +1024,18 @@ repl_inst_bkup_done1:
 			assert(udi == FILE_INFO(jnlpool->jnlpool_dummy_reg));
 			seg = jnlpool->jnlpool_dummy_reg->dyn.addr; /* re-initialize (for pool_init == TRUE case) */
 			cmdptr = &command[0];
-			assert(SIZEOF(command) >= (5 + seg->fname_len + mu_repl_inst_reg_list->backup_file.len));
-			memcpy(cmdptr, "cp ", 3);
-			cmdptr += 3;
+			assert(SIZEOF(command) >= (STR_LIT_LEN(UNALIAS) + 5 + seg->fname_len +
+								mu_repl_inst_reg_list->backup_file.len));
+			MEMCPY_LIT(cmdptr, UNALIAS);
+			cmdptr += STR_LIT_LEN(UNALIAS);
+			rv = CONFSTR(cp_cmd, MAX_FN_LEN);
+			if (0 != rv)
+			{
+				error_mupip = TRUE;
+				goto repl_inst_bkup_done2;
+			}
+			memcpy(cmdptr, cp_cmd, STRLEN(cp_cmd));
+			cmdptr += STRLEN(cp_cmd);
 			memcpy(cmdptr, seg->fname, seg->fname_len);
 			cmdptr[seg->fname_len] = ' ';
 			cmdptr += seg->fname_len + 1;
@@ -1375,7 +1379,7 @@ repl_inst_bkup_done2:
 				 * tests hits the scenario where BKUPRUNNING message is printed. Note that sleep of 1 sec
 				 * is fine because it is the box boxes which are failing to hit the concurrency scenario.
 				 */
-				if (gtm_white_box_test_case_enabled && (WBTEST_CONCBKUP_RUNNING == gtm_white_box_test_case_number))
+				if (ydb_white_box_test_case_enabled && (WBTEST_CONCBKUP_RUNNING == ydb_white_box_test_case_number))
 					LONG_SLEEP(1);
 #				endif
 				/* Make sure that the backup queue does not have any remnants on it. Note that we do not

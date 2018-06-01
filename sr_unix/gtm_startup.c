@@ -3,7 +3,7 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -69,15 +69,15 @@
 #include "zyerror_init.h"
 #include "trap_env_init.h"
 #include "zdate_form_init.h"
+#include "mstack_size_init.h"
 #include "dollar_system_init.h"
 #include "sig_init.h"
 #include "gtm_startup.h"
 #include "svnames.h"
 #include "jobinterrupt_init.h"
 #include "zco_init.h"
-#include "gtm_logicals.h"	/* for DISABLE_ALIGN_STRINGS */
 #include "suspsigs_handler.h"
-#include "logical_truth_value.h"
+#include "ydb_logical_truth_value.h"
 #include "gtm_utf8.h"
 #include "gtm_icu_api.h"	/* for u_strToUpper and u_strToLower */
 #include "gtm_conv.h"
@@ -95,6 +95,9 @@
 #ifdef UNICODE_SUPPORTED
 #include "utfcgr.h"
 #endif
+#include "ydb_getenv.h"
+
+#define	NOISOLATION_LITERAL	"NOISOLATION"
 
 GBLDEF void			(*restart)() = &mum_tstart;
 #ifdef __MVS__
@@ -148,8 +151,8 @@ void gtm_startup(struct startup_vector *svec)
 	mstr		log_name;
 	stack_frame 	*frame_pointer_lcl;
 	static char 	other_mode_buf[] = "OTHER";
-	unsigned char	*mstack_ptr;
 	void		gtm_ret_code();
+	char		*ptr;
 	DCL_THREADGBL_ACCESS;
 
 	SETUP_THREADGBL_ACCESS;
@@ -164,12 +167,7 @@ void gtm_startup(struct startup_vector *svec)
 	stpgc_ch = &stp_gcol_ch;
 	rtn_fst_table = rtn_names = (rtn_tabent *)svec->rtn_start;
 	rtn_names_end = rtn_names_top = (rtn_tabent *)svec->rtn_end;
-	if (svec->user_stack_size < 4096)
-		svec->user_stack_size = 4096;
-	if (svec->user_stack_size > 8388608)
-		svec->user_stack_size = 8388608;
-	mstack_ptr = (unsigned char *)malloc(svec->user_stack_size);
-	msp = stackbase = mstack_ptr + svec->user_stack_size - mvs_size[MVST_STORIG];
+	mstack_size_init(svec);
 	/* mark the stack base so that if error occur during call-in gtm_init(), the unwind
 	 * logic in gtmci_ch() will get rid of the stack completely
 	 */
@@ -178,8 +176,6 @@ void gtm_startup(struct startup_vector *svec)
 	mv_chain->mv_st_type = MVST_STORIG;	/* Initialize first (anchor) mv_stent so doesn't do anything */
 	mv_chain->mv_st_next = 0;
 	mv_chain->mv_st_cont.mvs_storig = 0;
-	stacktop = mstack_ptr + 2 * mvs_size[MVST_NTAB];
-	stackwarn = stacktop + (16 * 1024);
 	break_message_mask = svec->break_message_mask;
 	if (svec->user_strpl_size < STP_INITSIZE)
 		svec->user_strpl_size = STP_INITSIZE;
@@ -210,9 +206,7 @@ void gtm_startup(struct startup_vector *svec)
 #	endif
 	gtm_utf8_init(); /* Initialize the runtime for Unicode */
 	/* Initialize alignment requirement for the runtime stringpool */
-	log_name.addr = DISABLE_ALIGN_STRINGS;
-	log_name.len = STR_LIT_LEN(DISABLE_ALIGN_STRINGS);
-	/* mstr_native_align = logical_truth_value(&log_name, FALSE, NULL) ? FALSE : TRUE; */
+	/* mstr_native_align = ydb_logical_truth_value(YDBENVINDX_DISABLE_ALIGNSTR, FALSE, NULL) ? FALSE : TRUE; */
 	mstr_native_align = FALSE; /* TODO: remove this line and uncomment the above line */
 	getjobname();
 	getzprocess();
@@ -223,6 +217,7 @@ void gtm_startup(struct startup_vector *svec)
 	/* Put a base frame on the stack. One assumes this base frame is so there is *something* on the stack in case an error
 	 * or some such gets driven that looks at the stack. Needs to be at least one frame there. However, once we invoke
 	 * gtm_init_env (via jobchild_init()), this frame is no longer reachable since it builds the "real" base frame.
+	 * Note the last sentence does not apply to call-ins or to the simpleapi which do not call gtm_init_env().
 	 */
 	msp -= SIZEOF(stack_frame);
 	frame_pointer_lcl = (stack_frame *)msp;
@@ -247,9 +242,7 @@ void gtm_startup(struct startup_vector *svec)
 	}
 	io_init(IS_MUPIP_IMAGE);		/* starts with nocenable for GT.M runtime, enabled for MUPIP */
 	if (!IS_MUPIP_IMAGE)
-	{
 		cenable();	/* cenable unless the environment indicates otherwise - 2 steps because this can report errors */
-	}
 	jobinterrupt_init();
 	getzdir();
 	dpzgbini();
@@ -295,6 +288,19 @@ void gtm_startup(struct startup_vector *svec)
 		ojchildparms(NULL, NULL, NULL);
 	if ((NULL != (TREF(mprof_env_gbl_name)).str.addr))
 		turn_tracing_on(TADR(mprof_env_gbl_name), TRUE, (TREF(mprof_env_gbl_name)).str.len > 0);
+	/* See if ydb_noisolation is specified */
+	if (NULL != (ptr = ydb_getenv(YDBENVINDX_APP_ENSURES_ISOLATION, NULL_SUFFIX, NULL_IS_YDB_ENV_MATCH)))
+	{	/* Call the VIEW "NOISOLATION" command with the contents of the <ydb_app_ensures_isolation> env var */
+		mval 	noiso_lit, gbllist;
+
+		noiso_lit.mvtype = MV_STR;
+		noiso_lit.str.len = STR_LIT_LEN(NOISOLATION_LITERAL);
+		noiso_lit.str.addr = NOISOLATION_LITERAL;
+		gbllist.mvtype = MV_STR;
+		gbllist.str.len = STRLEN(ptr);
+		gbllist.str.addr = ptr;
+		op_view(VARLSTCNT(2) &noiso_lit, &gbllist);
+	}
 	return;
 }
 
@@ -325,19 +331,19 @@ void gtm_utf8_init(void)
 		 * structure where both dimensions are variable.
 		 */
 #       	ifdef UNICODE_SUPPORTED
-		utfcgr_size = OFFSETOF(utfcgr, entry) + (SIZEOF(utfcgr_entry) * TREF(gtm_utfcgr_string_groups));
-		alloc_size = utfcgr_size * TREF(gtm_utfcgr_strings);
+		utfcgr_size = OFFSETOF(utfcgr, entry) + (SIZEOF(utfcgr_entry) * TREF(ydb_utfcgr_string_groups));
+		alloc_size = utfcgr_size * TREF(ydb_utfcgr_strings);
 		(TREF(utfcgra)).utfcgrs = utfcgrp = (utfcgr *)malloc(alloc_size);
 		memset((char *)utfcgrp, 0, alloc_size);			/* Init to zeros */
-		for (i = 0, p = utfcgrp; TREF(gtm_utfcgr_strings) > i; i++, p = (utfcgr *)((INTPTR_T)p + utfcgr_size))
+		for (i = 0, p = utfcgrp; TREF(ydb_utfcgr_strings) > i; i++, p = (utfcgr *)((INTPTR_T)p + utfcgr_size))
 			/* Initialize cache structure for UTF8 string scan lookaside cache */
 			p->idx = i;					/* Initialize index value */
 		(TREF(utfcgra)).utfcgrsize = utfcgr_size;
 		(TREF(utfcgra)).utfcgrsteal = utfcgrp;			/* Starting place to look for cache reuse */
 		/* Pointer to the last usable utfcgr struct */
-		(TREF(utfcgra)).utfcgrmax = (utfcgr *)((UINTPTR_T)utfcgrp + ((TREF(gtm_utfcgr_strings) - 1) * utfcgr_size));
+		(TREF(utfcgra)).utfcgrmax = (utfcgr *)((UINTPTR_T)utfcgrp + ((TREF(ydb_utfcgr_strings) - 1) * utfcgr_size));
 		/* Spins to find non-(recently)-referenced cache slot before we overwrite an entry */
-		TREF(utfcgr_string_lookmax) = TREF(gtm_utfcgr_strings) / UTFCGR_MAXLOOK_DIVISOR;
+		TREF(utfcgr_string_lookmax) = TREF(ydb_utfcgr_strings) / UTFCGR_MAXLOOK_DIVISOR;
 #		endif /* UNICODE_SUPPORTED */
 	}
 }

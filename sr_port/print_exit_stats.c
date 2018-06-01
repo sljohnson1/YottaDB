@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2015 Fidelity National Information 	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -38,8 +41,7 @@
 # define PMAPSTR	"pmap "
 #endif
 
-
-GBLREF	uint4		gtmDebugLevel;		/* Debug level (0 = using default sm module so with
+GBLREF	uint4		ydbDebugLevel;		/* Debug level (0 = using default sm module so with
 						 * a DEBUG build, even level 0 implies basic debugging).
 						 */
 GBLREF	boolean_t	gtm_utf8_mode;
@@ -50,10 +52,11 @@ void print_exit_stats(void)
 	DBGMCALC_ONLY(int		mcblkcnt = 0;)
 	DBGMCALC_ONLY(ssize_t		mcblktot = 0;)
 	DBGMCALC_ONLY(mcalloc_hdr	*mcptr;)
-	char				systembuff[64];
+	char				pmap_buf[64];
+	char				systembuff[MAX_FN_LEN];
 	char				*cmdptr;
 
-	if ((GDL_SmStats | GDL_SmDumpTrace | GDL_SmDump) & gtmDebugLevel)
+	if ((GDL_SmStats | GDL_SmDumpTrace | GDL_SmDump) & ydbDebugLevel)
 	{
 		printMallocInfo();
 #		ifdef COMP_GTA
@@ -61,7 +64,7 @@ void print_exit_stats(void)
 #		endif
 	}
 #	ifdef DEBUG
-	if (GDL_PrintCacheStats & gtmDebugLevel)
+	if (GDL_PrintCacheStats & ydbDebugLevel)
 	{
 		fnpc_stats();
 #		ifdef UNICODE_SUPPORTED
@@ -70,17 +73,20 @@ void print_exit_stats(void)
 #		endif
 	}
 #	endif
-	if (GDL_PrintIndCacheStats & gtmDebugLevel)
+	if (GDL_PrintIndCacheStats & ydbDebugLevel)
 		cache_stats();
-	if (GDL_PrintSockIntStats & gtmDebugLevel)
+	if (GDL_PrintSockIntStats & ydbDebugLevel)
 		sockint_stats();
-	if (GDL_PrintPipeIntStats & gtmDebugLevel)
+	if (GDL_PrintPipeIntStats & ydbDebugLevel)
 		pipeint_stats();
-	if (GDL_PrintPMAPStats & gtmDebugLevel)
+	if (GDL_PrintPMAPStats & ydbDebugLevel)
 	{
 		cmdptr = &systembuff[0];
-		MEMCPY_LIT(cmdptr, PMAPSTR);
-		cmdptr += STR_LIT_LEN(PMAPSTR);
+		MEMCPY_LIT(cmdptr, UNALIAS);
+		cmdptr += STR_LIT_LEN(UNALIAS);
+		CONFSTR(pmap_buf, 64);
+		memcpy(cmdptr, pmap_buf, STRLEN(pmap_buf));
+		cmdptr += STRLEN(pmap_buf);
 		cmdptr = (char *)i2asc((uchar_ptr_t)cmdptr, getpid());
 		*cmdptr = '\0';
 		assert(cmdptr <= ARRAYTOP(systembuff));

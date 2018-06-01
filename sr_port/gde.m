@@ -3,6 +3,9 @@
 ; Copyright (c) 2001-2017 Fidelity National Information		;
 ; Services, Inc. and/or its subsidiaries. All rights reserved.	;
 ;								;
+; Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	;
+; All rights reserved.						;
+;								;
 ;	This source code contains the intellectual property	;
 ;	of its copyright holder(s), and is made available	;
 ;	under a license.  If you do not know the terms of	;
@@ -25,9 +28,9 @@ DBG:	;transfer point for DEBUG and "runtime" %gde
 	; Prepare special $etrap to issue error in case VIEW "YLCT" call to set local collation fails below
 	; Need to use this instead of the gde $etrap (set a few lines later below) as that expects some initialization
 	; to have happened whereas we are not yet there since setting local collation is a prerequisite for that init.
-	s $et="w !,$p($zs,"","",3,999) s $ecode="""" zm 150503603:$zparse(""$gtmgbldir"","""",""*.gld"") quit"
+	s $et="w !,$p($zs,"","",3,999) s $ecode="""" zm 150503603:$zparse(""$ydb_gbldir"","""",""*.gld"") quit"
 	v "YLCT":0:1:0		; sets local variable alternate collation = 0, null collation = 1, numeric collation = 0
-	; since GDE creates null subscripts, we don't want user level setting of gtm_lvnullsubs to affect us in any way
+	; since GDE creates null subscripts, we don't want user level setting of ydb_lvnullsubs to affect us in any way
 	s gdeEntryState("nullsubs")=$v("LVNULLSUBS")
 	v "LVNULLSUBS"
 	s gdeEntryState("zlevel")=$zlevel-1
@@ -57,11 +60,11 @@ comline:
 	d GDEPARSE^GDEPARSE
 	q
 CTRL
-	i $p($zs,",",3,999)["%GTM-E-CTRAP, Character trap $C(3) encountered" do  zg @resume(comlevel)
+	i $p($zs,",",3,999)["-E-CTRAP, Character trap $C(3) encountered" do  zg @resume(comlevel)
 	. i comlevel>0 d comeof ; if we take a ctrl-c in a command file then get out of that command file
-	i $p($zs,",",3,999)["%GTM-E-CTRAP, Character trap $C(25) encountered" d GETOUT^GDEEXIT h
-	i $p($zs,",",3,999)["%GTM-E-CTRAP, Character trap $C(26) encountered" d EXIT^GDEEXIT
-	i $p($zs,",",3,999)="%GTM-E-IOEOF, Attempt to read past an end-of-file" d
+	i $p($zs,",",3,999)["-E-CTRAP, Character trap $C(25) encountered" d GETOUT^GDEEXIT h
+	i $p($zs,",",3,999)["-E-CTRAP, Character trap $C(26) encountered" d EXIT^GDEEXIT
+	i $p($zs,",",3,999)["-E-IOEOF, Attempt to read past an end-of-file" d
 	. s $ecode=""	; clear IOEOF condition (not an error) so later GDE can exit with 0 status
 	. d comexit
 	i $zeof d EXIT^GDEEXIT
@@ -89,7 +92,7 @@ comfile:
 comeof	c comfile s comlevel=$select(comlevel>1:comlevel-1,1:0)
 	i comlevel>0 s comfile=comfile(comlevel) zm gdeerr("EXECOM"):comfile
 	e  u @useio
-	i $p($zs,",",3)'["%GTM-E-IOEOF",$p($zs,",",3)'["FILENOTFND" w !,$p($zs,",",3,9999),!
+	i $p($zs,",",3)'["-E-IOEOF",$p($zs,",",3)'["FILENOTFND" w !,$p($zs,",",3,9999),!
 	e  s ($ecode,$zstatus)=""	; clear IOEOF condition (not an error) so later GDE can exit with 0 status
 	q
 SCRIPT:

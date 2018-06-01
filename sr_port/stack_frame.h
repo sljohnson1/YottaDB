@@ -3,7 +3,7 @@
  * Copyright (c) 2001-2015 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -123,8 +123,11 @@ typedef struct stack_frame_struct	/* contents of the GT.M MUMPS stack frame */
 #define SFF_UNW_SYMVAL_OFF		~(SFF_UNW_SYMVAL)		/* Mask to turn off SFF_UNW_SYMVAL */
 #define SSF_NORET_VIA_MUMTSTART_OFF	~(SSF_NORET_VIA_MUMTSTART)	/* Mask to turn off SSF_NORET_VIA_MUMTSTART */
 
+#define	CALL_IN_M_ENTRYREF	"(Call-In)"	/* M entryref equivalent for Call-In. Filled in $zstatus, ZSHOW "S" etc. */
+#define	SIMPLEAPI_M_ENTRYREF	"(SimpleAPI)"	/* M entryref equivalent for simpleAPI. Filled in $zstatus */
+
 #define	ADJUST_FRAME_POINTER(fptr, shift)			\
-{								\
+MBSTART {							\
 	GBLREF	stack_frame	*error_frame;			\
 	stack_frame		*oldfp;				\
 								\
@@ -135,13 +138,27 @@ typedef struct stack_frame_struct	/* contents of the GT.M MUMPS stack frame */
 		assert(error_frame >= frame_pointer);		\
 		error_frame = fptr;				\
 	}							\
-}
+} MBEND
 
 /*
- * Skip past trigger and/or call-in base frames
+ * Skip past trigger and/or call-in base frames - as many of them as appear adjacent (updates FP)
  */
-#define SKIP_BASE_FRAME(FP) (((NULL != (FP)) && ((GTMTRIG_ONLY(SFT_TRIGR |) SFT_CI) & (FP)->type)) \
-			     ? *(stack_frame **)((FP) + 1) : (FP))
+#define SKIP_BASE_FRAMES(FP) 										\
+MBSTART {												\
+	if (NULL != (FP))										\
+	{												\
+		while (NULL == (FP)->old_frame_pointer)							\
+		{	/* We may need to jump over a base frame to get the rest of the M stack */	\
+			if ((SFT_TRIGR | SFT_CI) & (FP)->type) 						\
+			{	/* We have a trigger or call-in base frame, back up over it */		\
+				FP = *(stack_frame **)((FP) + 1);					\
+				continue;								\
+			}										\
+			/* Either origin frame or mumps/updproc base frame */				\
+			break;										\
+		}											\
+	}												\
+} MBEND
 
 void new_stack_frame(rhdtyp *rtn_base, unsigned char *context, unsigned char *transfer_addr);
 void new_stack_frame_sp(rhdtyp *rtn_base, unsigned char *context, unsigned char *transfer_addr);

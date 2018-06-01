@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
@@ -361,7 +361,7 @@ MBSTART {											\
 	gv_cur_region = SAVE_REG;			\
 }
 
-GBLREF	int4			gtm_fullblockwrites;	/* Do full (not partial) database block writes */
+GBLREF	int4			ydb_fullblockwrites;	/* Do full (not partial) database block writes */
 GBLREF	boolean_t		is_src_server;
 GBLREF  boolean_t               mupip_jnl_recover;
 GBLREF	gd_region		*gv_cur_region, *db_init_region;
@@ -767,7 +767,7 @@ int db_init(gd_region *reg, boolean_t ok_to_bypass)
 	 */
 	have_standalone_access = udi->grabbed_access_sem;
 	init_status = 0;
-	crypt_warning = FALSE;
+	crypt_warning = TREF(mu_set_file_noencryptable);
 	udi->shm_deleted = udi->sem_deleted = FALSE;
 	if (!have_standalone_access)
 	{
@@ -1037,7 +1037,7 @@ int db_init(gd_region *reg, boolean_t ok_to_bypass)
 			 */
 			incr_cnt = (!read_only || tsd_read_only);
 			/* We already have ftok semaphore of this region, so all we need is the access control semaphore */
-			SET_GTM_SOP_ARRAY(sop, sopcnt, incr_cnt, (SEM_UNDO | IPC_NOWAIT));
+			SET_YDB_SOP_ARRAY(sop, sopcnt, incr_cnt, (SEM_UNDO | IPC_NOWAIT));
 			SEMOP(udi->semid, sop, sopcnt, status, NO_WAIT);
 			if (-1 != status)
 				break;
@@ -1745,7 +1745,7 @@ int db_init(gd_region *reg, boolean_t ok_to_bypass)
 		udi->counter_ftok_incremented = FALSE;
 		assert(-1 != status);	/* since we hold the access control lock, we do not expect any errors */
 	}
-	if (gtm_fullblockwrites)
+	if (ydb_fullblockwrites)
 	{	/* We have been asked to do FULL BLOCK WRITES for this database. On *NIX, attempt to get the filesystem
 		 * blocksize from statvfs. This allows a full write of a blockwithout the OS having to fetch the old
 		 * block for a read/update operation. We will round the IOs to the next filesystem blocksize if the
@@ -1763,7 +1763,7 @@ int db_init(gd_region *reg, boolean_t ok_to_bypass)
 		fbwsize = get_fs_block_size(udi->fd);
 		dblksize = csd->blk_size;
 		if (0 != fbwsize && (0 == dblksize % fbwsize) && (0 == (BLK_ZERO_OFF(csd->start_vbn)) % fbwsize))
-			csa->do_fullblockwrites = gtm_fullblockwrites;		/* This region is fullblockwrite enabled */
+			csa->do_fullblockwrites = ydb_fullblockwrites;		/* This region is fullblockwrite enabled */
 		/* Report this length in DSE even if not enabled */
 		csa->fullblockwrite_len = fbwsize;		/* Length for rounding fullblockwrite */
 	}

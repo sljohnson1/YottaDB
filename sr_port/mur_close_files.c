@@ -3,6 +3,9 @@
  * Copyright (c) 2003-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -220,7 +223,7 @@ boolean_t mur_close_files(void)
 		assert(!rctl->db_updated || murgbl.clean_exit || !jgbl.onlnrlbk);
 		reg = rctl->gd;
 		/* reg could be NULL at this point in some rare cases (e.g. if we come to mur_close_files through
-		 * deferred_signal_handler as part of call_on_signal invocation and run down this region but encounter
+		 * deferred_exit_handler as part of call_on_signal invocation and run down this region but encounter
 		 * an error while running down another region, we could re-enter mur_close_files as part of exit handling.
 		 * In this case, since this region has already been rundown, skip running this down.
 		 */
@@ -792,7 +795,7 @@ boolean_t mur_close_files(void)
 			assert(!jgbl.onlnrlbk || (cs_addrs->now_crit && cs_addrs->hold_onto_crit) || !murgbl.clean_exit);
 			assert(!rctl->standalone || (1 == (semval = semctl(udi->semid, 0, GETVAL))));
 			if (jgbl.onlnrlbk)
-			{	/* This is an online rollback. If "gtm_mupjnl_parallel" is not 1, multiple child processes were
+			{	/* This is an online rollback. If "ydb_mupjnl_parallel" is not 1, multiple child processes were
 				 * started to operate on different regions in the forward phase. Any updates they made would not
 				 * have been flushed since the children did not go through "gds_rundown". If multiple child
 				 * processes were not started, it is possible some GT.M processes (which were active before the
@@ -922,7 +925,7 @@ boolean_t mur_close_files(void)
 		 */
 		repl_inst_write(udi->fn, (off_t)0, (sm_uc_ptr_t)&repl_instance, SIZEOF(repl_inst_hdr));
 		assert((NULL != jnlpool) && (NULL != jnlpool->jnlpool_dummy_reg));
-		got_ftok = ftok_sem_lock(jnlpool->jnlpool_dummy_reg, TRUE); /* immediate=TRUE */
+		got_ftok = ftok_sem_lock(jnlpool->jnlpool_dummy_reg, IMMEDIATE_TRUE); /* immediate=TRUE */
 		/* Note: The decision to remove the Journal Pool Access Control Semaphores should be based on two things:
 		 * 1. If we have the ftok on the instance file
 		 * 			AND
@@ -946,7 +949,7 @@ boolean_t mur_close_files(void)
 		 * to error out because the semaphore should still exist in the system
 		 */
 		assert(udi->counter_ftok_incremented || jgbl.onlnrlbk || anticipatory_freeze_available);
-		if (!ftok_sem_lock(jnlpool->jnlpool_dummy_reg, FALSE)
+		if (!ftok_sem_lock(jnlpool->jnlpool_dummy_reg, IMMEDIATE_FALSE)
 				|| !ftok_sem_release(jnlpool->jnlpool_dummy_reg, udi->counter_ftok_incremented, FALSE))
 			wrn_count++;
 	}
@@ -985,7 +988,7 @@ boolean_t mur_close_files(void)
 	mupip_exit_status_displayed = TRUE;
 	mur_close_files_done = TRUE;
 #	if defined(DEBUG)
-	if (WBTEST_ENABLED(WBTEST_RECOVER_ENOSPC) && (0 == gtm_white_box_test_case_count))
+	if (WBTEST_ENABLED(WBTEST_RECOVER_ENOSPC) && (0 == ydb_white_box_test_case_count))
 		util_out_print("Total number of writes !UL",TRUE, gtm_wbox_input_test_case_count);
 #	endif
 	return (0 == wrn_count);

@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -104,6 +107,7 @@ GBLREF	boolean_t		skip_INVOKE_RESTART;
 GBLREF	int4			gtm_trigger_depth;
 GBLREF	int4			tstart_trigger_depth;
 #endif
+GBLREF	int4			tstart_gtmci_nested_level;
 #ifdef DEBUG
 GBLREF	boolean_t		forw_recov_lgtrig_only;
 #endif
@@ -234,6 +238,7 @@ enum cdb_sc	op_tcommit(void)
 	 */
 	assert(tstart_trigger_depth <= gtm_trigger_depth);
 #	endif
+	assert(tstart_gtmci_nested_level <= TREF(gtmci_nested_level));
 	if (1 == dollar_tlevel)		/* real commit */
 	{
 #		ifdef GTM_TRIGGER
@@ -247,6 +252,9 @@ enum cdb_sc	op_tcommit(void)
 			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_TRIGTCOMMIT, 2, gtm_trigger_depth,
 					tstart_trigger_depth);
 		}
+		if (tstart_gtmci_nested_level != TREF(gtmci_nested_level))
+			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_CALLINTCOMMIT, 2,
+					TREF(gtmci_nested_level), tstart_gtmci_nested_level);
 		if (tp_pointer->cannot_commit)
 		{	/* If this TP transaction was implicit, any unhandled error when crossing the trigger boundary
 			 * would have caused a rethrow of the error in the M frame that held the non-TP update which
@@ -472,6 +480,17 @@ enum cdb_sc	op_tcommit(void)
 			if (cdb_sc_normal != status)
 			{
 				t_fail_hist[t_tries] = status;
+				if (cdb_sc_blkmod == status)
+				{	/* It is possible the call to "t_qread" (in "bm_getfree" or in "op_tcommit")
+					 * caused the cdb_sc_blkmod status. In this case, it would have invoked the
+					 * TP_TRACE_HIST_MOD macro to note down restart related details but would have
+					 * used a blkmod type of "tp_blkmod_t_qread". But we need to differentiate this
+					 * from a call to "t_qread" outside of the TCOMMIT which can cause the same blkmod.
+					 * Hence using a separate type (tp_blkmod_op_tcommit) to indicate this is a call
+					 * to "t_qread" inside "op_tcommit".
+					 */
+					TREF(blkmod_fail_type) = tp_blkmod_op_tcommit;
+				}
 				SET_WC_BLOCKED_FINAL_RETRY_IF_NEEDED(csa, cnl, status);
 				TP_RETRY_ACCOUNTING(csa, cnl);
 			}

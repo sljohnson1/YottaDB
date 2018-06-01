@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2016 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -39,6 +39,7 @@
 #include "min_max.h"
 #include "have_crit.h"
 #include "gtm_malloc.h"		/* for verifyAllocatedStorage */
+#include "ydb_getenv.h"
 
 /******************************************************************************
  *
@@ -376,9 +377,9 @@ STATICFNDEF int extarg_getsize(void *src, enum ydb_types typ, mval *dst)
 STATICFNDEF void op_fgnjavacal(mval *dst, mval *package, mval *extref, uint4 mask, int4 argcnt, int4 entry_argcnt,
     struct extcall_package_list *package_ptr, struct extcall_entry_list *entry_ptr, va_list var)
 {
-	boolean_t	error_in_xc = FALSE;
+	boolean_t	error_in_xc = FALSE, save_in_ext_call;
 	char		*free_string_pointer, *free_string_pointer_start, jtype_char;
-	char		str_buffer[MAX_NAME_LENGTH], *tmp_buff_ptr, *jni_err_buf;
+	char		*jni_err_buf;
 	char		*types_descr_ptr, *types_descr_dptr, *xtrnl_table_name;
 	gparam_list	*param_list;
 	gtm_long_t	*free_space_pointer;
@@ -611,9 +612,13 @@ STATICFNDEF void op_fgnjavacal(mval *dst, mval *package, mval *extref, uint4 mas
 	verifyAllocatedStorage();		/* GTM-8669 verify that argument placement did not trash allocated memory */
 #endif
 	save_mumps_status = mumps_status; 	/* Save mumps_status as a callin from external call may change it. */
+	save_in_ext_call = TREF(in_ext_call);
+	assert(INTRPT_OK_TO_INTERRUPT == intrpt_ok_state);		/* Expected for DEFERRED_SIGNAL_HANDLING_CHECK below */
 	TREF(in_ext_call) = TRUE;
 	status = callg((callgfnptr)entry_ptr->fcn, param_list);
-	TREF(in_ext_call) = FALSE;
+	TREF(in_ext_call) = save_in_ext_call;
+	if (!save_in_ext_call)
+		DEFERRED_SIGNAL_HANDLING_CHECK;					/* Check for deferred wcs_stale() timer */
 	mumps_status = save_mumps_status;
 	/* The first byte of the type description argument gets set to 0xFF in case error happened in JNI glue code,
 	 * so check for that and act accordingly.
@@ -673,23 +678,11 @@ STATICFNDEF void op_fgnjavacal(mval *dst, mval *package, mval *extref, uint4 mas
 				extarg2mval((void *)status, entry_ptr->return_type, dst, TRUE, FALSE);
 			else
 			{
-				memcpy(str_buffer, PACKAGE_ENV_PREFIX, SIZEOF(PACKAGE_ENV_PREFIX));
-				tmp_buff_ptr = &str_buffer[SIZEOF(PACKAGE_ENV_PREFIX) - 1];
 				if (package->str.len)
-				{
-					assert(package->str.len < MAX_NAME_LENGTH - SIZEOF(PACKAGE_ENV_PREFIX) - 1);
-					*tmp_buff_ptr++ = '_';
-					memcpy(tmp_buff_ptr, package->str.addr, package->str.len);
-					tmp_buff_ptr += package->str.len;
-				}
-				*tmp_buff_ptr = '\0';
-				xtrnl_table_name = GETENV(str_buffer);
-				if (NULL == xtrnl_table_name)
-				{ 	/* Environment variable for the package not found. This part of code is for more safety.
-					 * We should not come into this path at all.
-					 */
-					rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_ZCCTENV, 2, LEN_AND_STR(str_buffer));
-				}
+					xtrnl_table_name = ydb_getenv(YDBENVINDX_XC_PREFIX, &package->str, NULL_IS_YDB_ENV_MATCH);
+				else
+					xtrnl_table_name = ydb_getenv(YDBENVINDX_XC, NULL_SUFFIX, NULL_IS_YDB_ENV_MATCH);
+				assert(NULL != xtrnl_table_name);	/* or else a ZCCTENV error would have been issued earlier */
 				rts_error_csa(CSA_ARG(NULL) VARLSTCNT(6) ERR_XCVOIDRET, 4,
 					  LEN_AND_STR(entry_ptr->call_name.addr), LEN_AND_STR(xtrnl_table_name));
 			}
@@ -703,9 +696,9 @@ STATICFNDEF void op_fgnjavacal(mval *dst, mval *package, mval *extref, uint4 mas
 
 void op_fnfgncal(uint4 n_mvals, mval *dst, mval *package, mval *extref, uint4 mask, int4 argcnt, ...)
 {
-	boolean_t	java = FALSE;
+	boolean_t	java = FALSE, save_in_ext_call, is_tpretry;
 	char		*free_string_pointer, *free_string_pointer_start;
-	char		str_buffer[MAX_NAME_LENGTH], *tmp_buff_ptr, *xtrnl_table_name;
+	char		*xtrnl_table_name;
 	int		i, pre_alloc_size, rslt, save_mumps_status;
 	int4 		callintogtm_vectorindex, n;
 	gparam_list	*param_list;
@@ -756,10 +749,10 @@ void op_fnfgncal(uint4 n_mvals, mval *dst, mval *package, mval *extref, uint4 ma
 		init_callin_functable();
 	}
 	/* Entry not found */
-	if ((NULL == entry_ptr) || (NULL == entry_ptr->fcn))
+	if ((NULL == entry_ptr) || (NULL == entry_ptr->fcn) || (NULL == entry_ptr->call_name.addr))
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_ZCRTENOTF, 2, extref->str.len, extref->str.addr);
 	/* Detect a call-out to Java. The java plugin still has references to "gtm_xcj" (not "ydb_xcj") hence the below check. */
-	if ((NULL != entry_ptr->call_name.addr) && !strncmp(entry_ptr->call_name.addr, "gtm_xcj", 7))
+	if (!strncmp(entry_ptr->call_name.addr, "gtm_xcj", 7))
 	{
 		java = TRUE;
 		argcnt -= 2;
@@ -992,9 +985,11 @@ void op_fnfgncal(uint4 n_mvals, mval *dst, mval *package, mval *extref, uint4 ma
 	va_end(var);
 	param_list->n = argcnt;
 	save_mumps_status = mumps_status; /* Save mumps_status as a callin from external call may change it */
+	save_in_ext_call = TREF(in_ext_call);
 	TREF(in_ext_call) = TRUE;
 	status = callg((callgfnptr)entry_ptr->fcn, param_list);
-	TREF(in_ext_call) = FALSE;
+	TREF(in_ext_call) = save_in_ext_call;
+	is_tpretry = (ERR_TPRETRY == mumps_status);	/* note down whether the callg invocation had a TPRETRY error code */
 	mumps_status = save_mumps_status;
 
 	/* Exit from the residual call-in environment(SFT_CI base frame) which might
@@ -1032,28 +1027,23 @@ void op_fnfgncal(uint4 n_mvals, mval *dst, mval *package, mval *extref, uint4 ma
 			extarg2mval((void *)status, entry_ptr->return_type, dst, FALSE, FALSE);
 		else
 		{
-			memcpy(str_buffer, PACKAGE_ENV_PREFIX, SIZEOF(PACKAGE_ENV_PREFIX));
-			tmp_buff_ptr = &str_buffer[SIZEOF(PACKAGE_ENV_PREFIX) - 1];
 			if (package->str.len)
-			{
-				assert(package->str.len < MAX_NAME_LENGTH - SIZEOF(PACKAGE_ENV_PREFIX) - 1);
-				*tmp_buff_ptr++ = '_';
-				memcpy(tmp_buff_ptr, package->str.addr, package->str.len);
-				tmp_buff_ptr += package->str.len;
-			}
-			*tmp_buff_ptr = '\0';
-			xtrnl_table_name = GETENV(str_buffer);
-			if (NULL == xtrnl_table_name)
-			{	/* Environment variable for the package not found. This part of code is for more safety.
-				 * We should not come into this path at all.
-				 */
-				rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_ZCCTENV, 2, LEN_AND_STR(str_buffer));
-			}
+				xtrnl_table_name = ydb_getenv(YDBENVINDX_XC_PREFIX, &package->str, NULL_IS_YDB_ENV_MATCH);
+			else
+				xtrnl_table_name = ydb_getenv(YDBENVINDX_XC, NULL_SUFFIX, NULL_IS_YDB_ENV_MATCH);
+			assert(NULL != xtrnl_table_name);	/* or else a ZCCTENV error would have been issued earlier */
 			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(6) ERR_XCVOIDRET, 4,
 				  LEN_AND_STR(entry_ptr->call_name.addr), LEN_AND_STR(xtrnl_table_name));
 		}
 	}
 	free(param_list);
 	check_for_timer_pops();
+	if (is_tpretry)
+	{	/* A TPRETRY error code occurred inside the "callg" invocation.
+		 * Now that all cleanup (free of param_list etc.) has happened,
+		 * it is okay to bubble the ERR_TPRETRY error upto the caller.
+		 */
+		INVOKE_RESTART;
+	}
 	return;
 }

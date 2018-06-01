@@ -251,7 +251,7 @@ CONDITION_HANDLER(gtm_trigger_ch)
 {	/* Condition handler for trigger execution - This handler is pushed on first for a given trigger level, then
 	 * mdb_condition_handler is pushed on so will appear multiple times as trigger depth increases. There is
 	 * always an mdb_condition_handler behind us for an earlier trigger level and we let it handle severe
-	 * errors for us as it gives better diagnostics (e.g. GTM_FATAL_ERROR dumps) in addition to the file core dump.
+	 * errors for us as it gives better diagnostics (e.g. YDB_FATAL_ERROR dumps) in addition to the file core dump.
 	 */
 	START_CH(TRUE);	/* Note: "prev_intrpt_state" variable is defined/declared inside START_CH macro */
 	DBGTRIGR((stderr, "gtm_trigger_ch: Failsafe condition cond handler entered with SIGNAL = %d\n", SIGNAL));
@@ -359,7 +359,7 @@ int gtm_trigger_complink(gv_trigger_t *trigdsc, boolean_t dolink)
 			}
 			if (mident_suffix_p1 == mident_suffix_top)
 			{	/* Phase 3: Punt */
-				assert(WBTEST_HELPOUT_TRIGNAMEUNIQ == gtm_white_box_test_case_number);
+				assert(WBTEST_HELPOUT_TRIGNAMEUNIQ == ydb_white_box_test_case_number);
 				rts_error_csa(CSA_ARG(cs_addrs) VARLSTCNT(5) ERR_TRIGNAMEUNIQ, 3,
 						trigdsc->rtn_desc.rt_name.len - 2, trigdsc->rtn_desc.rt_name.addr,
 						((alphanumeric_table_len + 1) * alphanumeric_table_len) + 1);
@@ -504,21 +504,24 @@ int gtm_trigger_complink(gv_trigger_t *trigdsc, boolean_t dolink)
 
 int gtm_trigger(gv_trigger_t *trigdsc, gtm_trigger_parms *trigprm)
 {
-	mval		*lvvalue;
-	lnr_tabent	*lbl_offset_p;
-	uchar_ptr_t	transfer_addr;
-	lv_val		*lvval;
-	mname_entry	*mne_p;
-	uint4		*indx_p;
-	ht_ent_mname	*tabent;
-	boolean_t	added;
-	int		clrlen, rc, i, unwinds;
-	mval		**lvvalarray;
-	mv_stent	*mv_st_ent;
-	symval		*new_symval;
-	uint4		dollar_tlevel_start;
-	stack_frame	*fp;
-	intrpt_state_t	prev_intrpt_state;
+	mval			*lvvalue;
+	lnr_tabent		*lbl_offset_p;
+	uchar_ptr_t		transfer_addr;
+	lv_val			*lvval;
+	mname_entry		*mne_p;
+	uint4			*indx_p;
+	ht_ent_mname		*tabent;
+	boolean_t		added;
+	int			clrlen, rc, i, unwinds;
+	mval			**lvvalarray;
+	mv_stent		*mv_st_ent;
+	symval			*new_symval;
+	uint4			dollar_tlevel_start;
+	stack_frame		*fp;
+	intrpt_state_t		prev_intrpt_state;
+#	ifdef DEBUG
+	condition_handler	*tmpctxt;
+#	endif
 	DCL_THREADGBL_ACCESS;
 
 	SETUP_THREADGBL_ACCESS;
@@ -618,16 +621,17 @@ int gtm_trigger(gv_trigger_t *trigdsc, gtm_trigger_parms *trigprm)
 		mv_st_ent->mv_st_cont.mvs_trigr.gtm_trigprm_last_save = trigprm;
 #		endif
 		/* If this is a spanning node or spanning region update, a spanning node/region condition handler may be ahead.
-		 * However, the handler just behind it should be either mdb_condition_handler or ch_at_trigger_init.
+		 * However, the handler just behind it should be mdb_condition_handler or ch_at_trigger_init or ydb_simpleapi_ch.
 		 */
 		assert(((0 == gtm_trigger_depth)
-				&& (((ch_at_trigger_init == ctxt->ch)
-					|| ((ch_at_trigger_init == (ctxt - 1)->ch)
-						&& ((&gvcst_put_ch == ctxt->ch) || (&gvcst_kill_ch == ctxt->ch)
-							|| (&gvcst_spr_kill_ch == ctxt->ch))))))
+				&& ((&ydb_simpleapi_ch == ctxt->ch)
+					|| (ch_at_trigger_init == ctxt->ch)
+					|| (((ch_at_trigger_init == (ctxt - 1)->ch) || (&ydb_simpleapi_ch == (ctxt - 1)->ch))
+							&& ((&gvcst_put_ch == ctxt->ch) || (&gvcst_kill_ch == ctxt->ch)
+								|| (&gvcst_spr_kill_ch == ctxt->ch)))))
 			|| ((0 < gtm_trigger_depth)
 				&& (((&mdb_condition_handler == ctxt->ch)
-					|| ((&mdb_condition_handler == (ctxt - 1)->ch)
+					|| (((&mdb_condition_handler == (ctxt - 1)->ch) || (&ydb_simpleapi_ch == (ctxt - 1)->ch))
 						&& ((&gvcst_put_ch == ctxt->ch) || (&gvcst_kill_ch == ctxt->ch)
 							|| (&gvcst_spr_kill_ch == ctxt->ch)))))));
 		mv_st_ent->mv_st_cont.mvs_trigr.ctxt_save = ctxt;
@@ -639,9 +643,9 @@ int gtm_trigger(gv_trigger_t *trigdsc, gtm_trigger_parms *trigprm)
 			mv_st_ent->mv_st_cont.mvs_trigr.ztrap_explicit_null_save = ztrap_explicit_null;
 			(TREF(dollar_ztrap)).str.len = 0;
 			ztrap_explicit_null = FALSE;
-			if (NULL != (TREF(gtm_trigger_etrap)).str.addr)
+			if (NULL != (TREF(ydb_trigger_etrap)).str.addr)
 				/* An etrap was defined for the trigger environment - Else existing $etrap persists */
-				TREF(dollar_etrap) = TREF(gtm_trigger_etrap);
+				TREF(dollar_etrap) = TREF(ydb_trigger_etrap);
 		}
 		mv_st_ent->mv_st_cont.mvs_trigr.mumps_status_save = mumps_status;
 		mv_st_ent->mv_st_cont.mvs_trigr.run_time_save = run_time;
@@ -749,12 +753,31 @@ int gtm_trigger(gv_trigger_t *trigdsc, gtm_trigger_parms *trigprm)
 		{	/* Unwind a trigger level to restart level or to next trigger boundary */
 			gtm_trigger_fini(FALSE, FALSE);	/* Get rid of this trigger level - we won't be returning */
 			DBGTRIGR((stderr, "gtm_trigger: dm_start returned rethrow code - rethrowing ERR_TPRETRY\n"));
-			/* The bottommost mdb_condition handler better not be catching this restart if we did an implicit
-			 * tstart. mdb_condition_handler will try to unwind further, and the process will inadvertently exit.
-			 */
-			assert((&mdb_condition_handler != ch_at_trigger_init)
-				|| ((&mdb_condition_handler == ctxt->ch) && (&mdb_condition_handler == chnd[1].ch)
-				     && (!tp_pointer->implicit_tstart || (&chnd[1] < ctxt))));
+#			ifdef DEBUG
+			if ((&mdb_condition_handler == ch_at_trigger_init) && (&ydb_simpleapi_ch != ctxt->ch))
+			{
+				assert(&mdb_condition_handler == ctxt->ch);
+				if (tp_pointer->implicit_tstart)
+				{
+					assert(&chnd[1] < ctxt);
+					/* The bottommost mdb_condition handler better not be catching this restart
+					 * if we did an implicit tstart. mdb_condition_handler will try to unwind further,
+					 * and the process will inadvertently exit. Assert below that there is one more
+					 * mdb_condition_handler behind the currently established handler (which we already
+					 * asserted above that it is "mdb_condition_handler"). If not, there should be at least
+					 * one "ydb_simpleapi_ch" behind the currently established handler. In this case, the
+					 * caller who established this handler (e.g. "ydb_set_s", "ydb_get_s", "ydb_tp_s" etc.)
+					 * knows how to handle a ERR_TPRETRY error code.
+					 */
+					for (tmpctxt = ctxt - 1; tmpctxt >= &chnd[0]; tmpctxt--)
+					{
+						if ((&mdb_condition_handler == tmpctxt->ch) || (&ydb_simpleapi_ch == tmpctxt->ch))
+							break;
+					}
+					assert(tmpctxt >= &chnd[0]);
+				}
+			}
+#			endif
 			INVOKE_RESTART;
 		} else
 		{	/* It is possible we are restarting a transaction that never got around to creating a base
@@ -810,12 +833,17 @@ int gtm_trigger(gv_trigger_t *trigdsc, gtm_trigger_parms *trigprm)
  */
 void gtm_trigger_fini(boolean_t forced_unwind, boolean_t fromzgoto)
 {
+	DCL_THREADGBL_ACCESS;
+
+	SETUP_THREADGBL_ACCESS;
 	/* Would normally be an assert but potential frame stack damage so severe and resulting debug difficulty that we
 	 * assertpro() instead.
 	 */
 	assertpro(frame_pointer->type & SFT_TRIGR);
+	TREF(trig_forced_unwind) = forced_unwind;	/* used by "op_unwind" */
 	/* Unwind the trigger base frame */
 	op_unwind();
+	assert(FALSE == TREF(trig_forced_unwind));	/* should have been reset by "op_unwind" */
 	/* restore frame_pointer stored at msp (see base_frame.c) */
         frame_pointer = *(stack_frame**)msp;
 	msp += SIZEOF(stack_frame *);           /* Remove frame save pointer from stack */
@@ -848,8 +876,11 @@ void gtm_trigger_fini(boolean_t forced_unwind, boolean_t fromzgoto)
 				DBGTRIGR((stderr, "gtm_trigger: cannot_commit flag set to TRUE\n"))
 				tp_pointer->cannot_commit = TRUE;
 			}
-			if ((tp_pointer->fp == frame_pointer) && tp_pointer->implicit_tstart)
-				OP_TROLLBACK(-1); /* We just unrolled the implicitly started TSTART so unroll what it did */
+			/* We just unrolled the implicitly started TSTART so unroll what it did. The only exception is if
+			 * this TP frame was created by a call from "ydb_tp_s". In that case, it will do the rollback itself.
+			 */
+			if ((tp_pointer->fp == frame_pointer) && tp_pointer->implicit_tstart && !tp_pointer->ydb_tp_s_tstart)
+				OP_TROLLBACK(-1);
 		}
 	}
 	DBGTRIGR((stderr, "gtm_trigger: Unwound to trigger invoking frame: frame_pointer 0x%016lx  ctxt value: 0x%016lx\n",
@@ -901,13 +932,13 @@ void gtm_trigger_cleanup(gv_trigger_t *trigdsc)
 	/* Verify trigger routine we want to remove is not currently active. If it is, we need to assert fail.
 	 * Triggers are not like regular routines since they should only ever be referenced from the stack during a
 	 * transaction. Likewise, we should only ever load the triggers as the first action in that transaction.
-	 * Note, we can use SKIP_BASE_FRAME in the "for" statement here where we cannot in other places. In those
-	 * other places, we want the checks done in SKIP_BASE_FRAME to be applicable to "fp" in the first iteration
-	 * but here it is impossible for the first frame we look at to be either a trigger or call-in frame.
 	 */
 #	ifdef DEBUG
-	for (fp = frame_pointer; NULL != fp; fp = SKIP_BASE_FRAME(fp->old_frame_pointer))
+	for (fp = frame_pointer; NULL != fp; fp = fp->old_frame_pointer)
+	{
+		SKIP_BASE_FRAMES(fp);
 		assert(fp->rvector != rtnhdr);
+	}
 #	endif
 	/* Locate the routine in the routine table while all the pieces are available. Then remove from routine table
 	 * after the routine is unlinked.

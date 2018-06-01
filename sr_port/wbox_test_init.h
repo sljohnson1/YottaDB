@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2005-2017 Fidelity National Information	*
+ * Copyright (c) 2005-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
@@ -24,9 +24,9 @@
 #else
 # define REFTYPE GBLREF
 #endif
-REFTYPE	boolean_t	gtm_white_box_test_case_enabled;
-REFTYPE	int		gtm_white_box_test_case_number;
-REFTYPE	int		gtm_white_box_test_case_count;
+REFTYPE	boolean_t	ydb_white_box_test_case_enabled;
+REFTYPE	int		ydb_white_box_test_case_number;
+REFTYPE	int		ydb_white_box_test_case_count;
 REFTYPE	int 		gtm_wbox_input_test_case_count;
 
 void wbox_test_init(void);
@@ -83,12 +83,12 @@ typedef enum {
 	WBTEST_FAIL_ON_SHMGET,			/* 44 : Unix only.  Cause db_init() to fail on shmget */
 	WBTEST_EXTEND_JNL_FSYNC,		/* 45 : enter a long loop upon trying to do jnl_fsync */
 	WBTEST_TRIGR_TPRESTART_MSTOP,		/* 46 : Trigger being restarted gets a MUPIP STOP - shouldn't fail */
-	WBTEST_SENDTO_EPERM,			/* 47 : Will sleep in grab_crit depending on gtm_white_box_test_case_number */
+	WBTEST_SENDTO_EPERM,			/* 47 : Will sleep in grab_crit depending on ydb_white_box_test_case_number */
 	WBTEST_ALLOW_ARBITRARY_FULLY_UPGRADED,	/* 48 : Allows csd->fully_upgraded to take arbitrary values (via DSE) and prevents
 						 *      assert in mur_process_intrpt_recov.c */
 	WBTEST_HOLD_ONTO_FTOKSEM_IN_DBINIT,	/* 49 : Sleep in db_init after getting hold of the ftok semaphore */
 	WBTEST_HOLD_ONTO_ACCSEM_IN_DBINIT,	/* 50 : Sleep in db_init after getting hold of the access control semaphore */
-	WBTEST_JNL_SWITCH_EXPECTED,		/* 51 : We expect an automatic journal file switch in jnl_file_open */
+	WBTEST_UNUSED51,			/* 51 : UNUSED - YDB#235 removed the only place to test this */
 	WBTEST_SYSCONF_WRAPPER,			/* 52 : Will sleep in SYSCONF wrapper to let us verify that first two MUPIP STOPs
 						 *	are indeed deferred in the interrupt-deferred zone, but the third isn't */
         WBTEST_DEFERRED_TIMERS,			/* 53 : Will enter a long loop upon specific WRITE or MUPIP STOP command */
@@ -113,7 +113,7 @@ typedef enum {
 	/* Begin ANTIFREEZE related white box test cases */
 	WBTEST_ANTIFREEZE_JNLCLOSE,		/* 69 :  */
 	WBTEST_ANTIFREEZE_DBBMLCORRUPT,		/* 70 :  */
-	WBTEST_EXPECT_CRYPTOPFAILED,		/* 71 :  set when expecting CRYPTOPFAILED so we don't take a core*/
+	WBTEST_UNUSED71,			/* 71 :  UNUSED - GTM-8919 removed the only place to test this */
 	WBTEST_ANTIFREEZE_DBFSYNCERR,		/* 72 :	 */
 	WBTEST_ANTIFREEZE_GVDATAFAIL,		/* 73 :  */
 	WBTEST_ANTIFREEZE_GVGETFAIL,		/* 74 :  */
@@ -148,7 +148,7 @@ typedef enum {
 	WBTEST_HOLD_GTMSOURCE_SRV_LATCH,	/* 99 : Hold the source server latch until rollback process issues a SIGCONT */
 	WBTEST_KILL_ROLLBACK,			/* 100 : Kill in the middle of rollback */
 	WBTEST_INFO_HUB_SEND_ZMESS,		/* 101 : Print messages triggered via ZMESSAGE to the syslog */
-	WBTEST_SKIP_CORE_FOR_MEMORY_ERROR,	/* 102 : Do not generate core file in case of GTM-E-MEMORY fatal error */
+	WBTEST_SKIP_CORE_FOR_MEMORY_ERROR,	/* 102 : Do not generate core file in case of YDB-E-MEMORY fatal error */
 	WBTEST_EXTFILTER_INDUCE_ERROR,		/* 103 : Do not assert in case of external filter error (test induces that) */
 	WBTEST_BADEXEC_UPDATE_PROCESS,		/* 104 : Prevent the update process from EXECing */
 	WBTEST_BADEXEC_HELPER_PROCESS,		/* 105 : Prevent the helper processes from EXECing */
@@ -185,7 +185,8 @@ typedef enum {
 	WBTEST_GETPWUID_CHECK_OVERWRITE,	/* 136 : Check for getpwuid_struct variable overwrite condition */
 	WBTEST_NO_REPLINSTMULTI_FAIL,		/* 137 : Unless specified tests should not fail with REPLMULTINSTUPDATE */
 	WBTEST_DOLLARDEVICE_BUFFER,		/* 138 : Force larger error messages for $device to exceed DD_BUFLEN */
-	WBTEST_LOWERED_JNLEPOCH			/* 139 : Force larger error messages for $device to exceed DD_BUFLEN */
+	WBTEST_LOWERED_JNLEPOCH,		/* 139 : Force larger error messages for $device to exceed DD_BUFLEN */
+	WBTEST_SIGTERM_IN_JOB_CHILD		/* 140 : Generate Sigterm  by killing ourselves before the child fork */
 	/* Note 1: when adding new white box test cases, please make use of WBTEST_ENABLED and WBTEST_ASSIGN_ONLY (defined below)
 	 * whenever applicable
 	 * Note 2: when adding a new white box test case, see if an existing WBTEST_UNUSED* slot can be leveraged.
@@ -193,13 +194,13 @@ typedef enum {
 } wbtest_code_t;
 
 #ifdef DEBUG
-/* Make sure to setenv gtm_white_box_test_case_count if you are going to use GTM_WHITE_BOX_TEST */
+/* Make sure to setenv ydb_white_box_test_case_count if you are going to use GTM_WHITE_BOX_TEST */
 #define GTM_WHITE_BOX_TEST(input_test_case_num, lhs, rhs)						\
 {													\
-	if (gtm_white_box_test_case_enabled && (gtm_white_box_test_case_number == input_test_case_num))	\
+	if (ydb_white_box_test_case_enabled && (ydb_white_box_test_case_number == input_test_case_num))	\
 	{												\
 		gtm_wbox_input_test_case_count++;							\
-		if (gtm_white_box_test_case_count == gtm_wbox_input_test_case_count)			\
+		if (ydb_white_box_test_case_count == gtm_wbox_input_test_case_count)			\
 		{											\
 			lhs = rhs;									\
 			gtm_wbox_input_test_case_count = 0;						\
@@ -211,7 +212,7 @@ typedef enum {
 #endif
 
 #ifdef DEBUG
-#define WBTEST_ENABLED(WBTEST_NUMBER)	(gtm_white_box_test_case_enabled && (WBTEST_NUMBER == gtm_white_box_test_case_number))
+#define WBTEST_ENABLED(WBTEST_NUMBER)	(ydb_white_box_test_case_enabled && (WBTEST_NUMBER == ydb_white_box_test_case_number))
 #define ENABLE_WBTEST_ABANDONEDKILL									\
 {													\
 	int	sleep_counter;										\
@@ -220,14 +221,14 @@ typedef enum {
 	GTM_WHITE_BOX_TEST(WBTEST_ABANDONEDKILL, sleep_counter, SLEEP_ONE_MIN);				\
 	if (SLEEP_ONE_MIN == sleep_counter)								\
 	{												\
-		assert(gtm_white_box_test_case_enabled);						\
+		assert(ydb_white_box_test_case_enabled);						\
 		util_out_print("!/INFO : WBTEST_ABANDONEDKILL waiting in Phase II of Kill",TRUE);	\
 		while (1 <= sleep_counter)								\
 			wcs_sleep(sleep_counter--);							\
 	}												\
 }
-#define WB_PHASE1_COMMIT_ERR	(WBTEST_BG_UPDATE_BTPUTNULL == gtm_white_box_test_case_number)
-#define WB_PHASE2_COMMIT_ERR	(WBTEST_BG_UPDATE_PHASE2FAIL == gtm_white_box_test_case_number)
+#define WB_PHASE1_COMMIT_ERR	(WBTEST_BG_UPDATE_BTPUTNULL == ydb_white_box_test_case_number)
+#define WB_PHASE2_COMMIT_ERR	(WBTEST_BG_UPDATE_PHASE2FAIL == ydb_white_box_test_case_number)
 #define WB_COMMIT_ERR_ENABLED	(WB_PHASE1_COMMIT_ERR || WB_PHASE2_COMMIT_ERR)	/* convoluted definition to simplify usage */
 #define WBTEST_ASSIGN_ONLY(WBTEST_NUMBER, LHS, RHS)							\
 {													\

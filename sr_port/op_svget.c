@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -97,7 +97,7 @@ GBLREF size_t		totalUsedGta;
 GBLREF mstr		dollar_zchset;
 GBLREF mstr		dollar_zpatnumeric;
 GBLREF boolean_t	dollar_zquit_anyway;
-GBLREF io_pair		*io_std_device;
+GBLREF io_pair		io_std_device;
 GBLREF mstr		dollar_zpin;
 GBLREF mstr		dollar_zpout;
 GBLREF int		process_exiting;
@@ -123,6 +123,8 @@ error_def(ERR_ZDIROUTOFSYNC);
 LITREF mval		literal_zero, literal_one, literal_null;
 LITREF char		gtm_release_name[];
 LITREF int4		gtm_release_name_len;
+LITREF char		ydb_release_stamp[];
+LITREF int4		ydb_release_stamp_len;
 LITREF char		ydb_release_name[];
 LITREF int4		ydb_release_name_len;
 
@@ -140,13 +142,13 @@ void op_svget(int varnum, mval *v)
 
 	SETUP_THREADGBL_ACCESS;
 #	if defined(UNIX) && defined(DEBUG)
-	if (gtm_white_box_test_case_enabled && (WBTEST_HUGE_ALLOC == gtm_white_box_test_case_number))
+	if (ydb_white_box_test_case_enabled && (WBTEST_HUGE_ALLOC == ydb_white_box_test_case_number))
 	{
-		if (1 == gtm_white_box_test_case_count)
+		if (1 == ydb_white_box_test_case_count)
 			totalAlloc = totalAllocGta = totalRmalloc = totalRallocGta = totalUsed = totalUsedGta = 0xffff;
-		else if (2 == gtm_white_box_test_case_count)
+		else if (2 == ydb_white_box_test_case_count)
 			totalAlloc = totalAllocGta = totalRmalloc = totalRallocGta = totalUsed = totalUsedGta = 0xfffffff;
-		else if (3 == gtm_white_box_test_case_count)
+		else if (3 == ydb_white_box_test_case_count)
 		{
 #			ifdef GTM64
 			if (8 == SIZEOF(size_t))
@@ -177,7 +179,7 @@ void op_svget(int varnum, mval *v)
 			break;
 		case SV_ZPIN:
 			/* if not a split device then ZPIN and ZPOUT will fall through to ZPRINCIPAL */
-			if (io_std_device->in != io_std_device->out)
+			if (io_std_device.in != io_std_device.out)
 			{
 				tl = dollar_principal ? dollar_principal : io_root_log_name->iod->trans_name;
 				/* will define zpin as $p contents followed by "< /", for instance: /dev/tty4< / */
@@ -195,7 +197,7 @@ void op_svget(int varnum, mval *v)
 			}
 		case SV_ZPOUT:
 			/* if not a split device then ZPOUT will fall through to ZPRINCIPAL */
-			if (io_std_device->in != io_std_device->out)
+			if (io_std_device.in != io_std_device.out)
 			{
 				tl = dollar_principal ? dollar_principal : io_root_log_name->iod->trans_name;
 				/* will define zpout as $p contents followed by "> /", for instance: /dev/tty4> / */
@@ -369,9 +371,9 @@ void op_svget(int varnum, mval *v)
 			break;
 		case SV_ZROUTINES:
 			/* If we are in the process of exiting and come here (e.g. to do ZSHOW dump as part of creating
-			 * the fatal zshow dump file due to a fatal GTM-F-MEMORY error), do not invoke zro_init() as that
+			 * the fatal zshow dump file due to a fatal YDB-F-MEMORY error), do not invoke zro_init() as that
 			 * might in turn require more memory (e.g. attach to relinkctl shared memory etc.) and we dont
-			 * want to get a nested GTM-F-MEMORY error.
+			 * want to get a nested YDB-F-MEMORY error.
 			 */
 			if (!TREF(zro_root) && !process_exiting)
 				zro_init();
@@ -398,6 +400,11 @@ void op_svget(int varnum, mval *v)
 			break;
 		case SV_KEY:
 			get_dlr_key(v);
+			break;
+		case SV_ZRELDATE:
+			v->mvtype = MV_STR;
+			v->str.addr = (char *)ydb_release_stamp;
+			v->str.len = ydb_release_stamp_len;
 			break;
 		case SV_ZVERSION:
 			v->mvtype = MV_STR;

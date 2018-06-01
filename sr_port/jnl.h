@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -553,8 +556,8 @@ typedef struct
 {												\
 	assert((JBP->freeaddr % JBP->size) == JBP->free);					\
 	assert((JBP->freeaddr >= JBP->dskaddr)							\
-		|| (gtm_white_box_test_case_enabled						\
-			&& (WBTEST_JNL_FILE_LOST_DSKADDR == gtm_white_box_test_case_number)));	\
+		|| (ydb_white_box_test_case_enabled						\
+			&& (WBTEST_JNL_FILE_LOST_DSKADDR == ydb_white_box_test_case_number)));	\
 }
 
 #ifdef DB64
@@ -1154,6 +1157,7 @@ typedef struct mu_set_reglist
 	struct mu_set_reglist	*fPtr;		/* all fields after this are used for mupip_set_journal.c */
 	gd_region		*reg;
 	char			unique_id[UNIQUE_ID_SIZE];
+	int4			fid_index;
 	enum rlist_state	state;
 	sgmnt_data_ptr_t 	sd;
 	bool			exclusive;	/* standalone access is required for this region */
@@ -1338,8 +1342,8 @@ MBSTART {											\
 	assert(phs2cmt->process_id == process_id);						\
 	assert(FALSE == phs2cmt->write_complete);						\
 	assert(((phs2cmt->start_freeaddr + phs2cmt->tot_jrec_len) == NEW_FREEADDR)		\
-		|| (gtm_white_box_test_case_enabled						\
-			&& (WBTEST_JNL_FILE_LOST_DSKADDR == gtm_white_box_test_case_number)));	\
+		|| (ydb_white_box_test_case_enabled						\
+			&& (WBTEST_JNL_FILE_LOST_DSKADDR == ydb_white_box_test_case_number)));	\
 	phs2cmt->write_complete = TRUE;								\
 	/* Invoke "jnl_phase2_cleanup" sparingly as it calls "grab_latch". So we do it twice.	\
 	 * Once at half-way mark and once when a wrap occurs.					\
@@ -1867,7 +1871,7 @@ jnl_format_buffer	*jnl_format(jnl_action_code opcode, gv_key *key, mval *val, ui
 void	wcs_defer_wipchk_ast(jnl_private_control *jpc);
 uint4	set_jnl_file_close(void);
 uint4 	jnl_file_open_common(gd_region *reg, off_jnl_t os_file_size, char *err_str);
-uint4	jnl_file_open_switch(gd_region *reg, uint4 sts);
+uint4	jnl_file_open_switch(gd_region *reg, uint4 sts, char *err_str);
 void	jnl_file_close(gd_region *reg, boolean_t clean, boolean_t in_jnl_switch);
 
 /* Consider putting followings in a mupip only header file  : Layek 2/18/2003 */

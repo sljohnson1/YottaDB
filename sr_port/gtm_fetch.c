@@ -3,7 +3,7 @@
  * Copyright (c) 2009-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -80,7 +80,11 @@ void gtm_fetch(unsigned int indxarg, ...)
 		op_fnrandom(1024, random_mval);
 		als_lvval_gc_frequency = 8 + MV_FORCE_INT(random_mval);
 	}
-	if (++fetch_invocation == als_lvval_gc_frequency)
+	/* Restrict even debug invocations of als_lvval_gc() to only when alias activity has been done. Else it
+	 * 1. just eats cycles for no purpose
+	 * 2. it makes tests that create lots of local variables perform dreadfully
+	 */
+	if ((++fetch_invocation == als_lvval_gc_frequency) && curr_symval->alias_activity)
 	{
 		als_lvval_gc();
 		fetch_invocation = 0;

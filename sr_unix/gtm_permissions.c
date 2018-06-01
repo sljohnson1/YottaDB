@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2009-2017 Fidelity National Information	*
+ * Copyright (c) 2009-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
@@ -113,7 +113,7 @@ boolean_t gtm_member_group_id(uid_t uid, gid_t gid, struct perm_diag_data *pdd)
 	struct passwd	*pwd;
 
 #	ifdef DEBUG
-	if (WBTEST_HELPOUT_FAILGROUPCHECK == gtm_white_box_test_case_number)
+	if (WBTEST_HELPOUT_FAILGROUPCHECK == ydb_white_box_test_case_number)
 	{
 		if (NULL == gid_list)
 			gtm_init_gid_list();
@@ -166,7 +166,7 @@ boolean_t gtm_permissions(struct stat *stat_buff, int *user_id, int *group_id, i
 	int		this_uid_is_root;
 	int		this_uid_in_file_group;
 	int		owner_in_file_group;
-	int		gtm_group_restricted;
+	int		ydb_group_restricted;
 	int		file_owner_perms, file_group_perms, file_other_perms;
 	int		new_owner_perms, new_group_perms, new_other_perms;
 	char		*strnow, *strtop;
@@ -245,8 +245,8 @@ boolean_t gtm_permissions(struct stat *stat_buff, int *user_id, int *group_id, i
 		}
 		/* Find restricted group, if any */
 		ydb_dist_gid = gtm_get_group_id(&dist_stat_buff);
-		dir_mode = dist_stat_buff.st_mode;
-		gtm_group_restricted = ((INVALID_GID != ydb_dist_gid) && !(dir_mode & 01)); /* not other executable */
+		dir_mode = (INVALID_GID != ydb_dist_gid) ? dist_stat_buff.st_mode : 0;	/* 4SCA: Assigned value is garbage */
+		ydb_group_restricted = ((INVALID_GID != ydb_dist_gid) && !(dir_mode & 01)); /* not other executable */
 		if ((this_uid_is_file_owner && this_uid_in_file_group) || this_uid_is_root)
 		{
 			if (this_uid_is_root)		/* otherwise, use default uid */
@@ -260,9 +260,9 @@ boolean_t gtm_permissions(struct stat *stat_buff, int *user_id, int *group_id, i
 			 * one needs to keep the existing group permissions while setting up the new group permissions.
 			 */
 			new_group_perms = (new_group_perms | (new_other_perms << 3));
-			if (gtm_group_restricted)
+			if (ydb_group_restricted)
 			{
-				assert((WBTEST_HELPOUT_FAILGROUPCHECK == gtm_white_box_test_case_number)
+				assert((WBTEST_HELPOUT_FAILGROUPCHECK == ydb_white_box_test_case_number)
 						|| gtm_member_group_id(this_uid, ydb_dist_gid, pdd));
 				*group_id = ydb_dist_gid;	/* use restricted group */
 				*perm = new_owner_perms | new_group_perms;
@@ -291,9 +291,9 @@ boolean_t gtm_permissions(struct stat *stat_buff, int *user_id, int *group_id, i
 				assert(file_group_perms);
 				new_owner_perms = new_group_perms << 3;
 				*perm = new_owner_perms | new_group_perms | new_other_perms;
-			} else if (gtm_group_restricted)
+			} else if (ydb_group_restricted)
 			{
-				assert((WBTEST_HELPOUT_FAILGROUPCHECK == gtm_white_box_test_case_number)
+				assert((WBTEST_HELPOUT_FAILGROUPCHECK == ydb_white_box_test_case_number)
 						|| gtm_member_group_id(this_uid, ydb_dist_gid, pdd));
 				*group_id = ydb_dist_gid;	/* use restricted group */
 				new_group_perms = (new_group_perms | (new_other_perms << 3));

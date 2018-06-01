@@ -18,4 +18,18 @@ const static readonly int error_ansi[] = {
 	   0,	/* LIBYOTTAMISMTCH */
 	   0,	/* READONLYNOSTATS */
 	   0,	/* READONLYLKFAIL */
+	   0,	/* INVVARNAME */
+	   0,	/* PARAMINVALID */
+	   0,	/* INSUFFSUBS */
+	   0,	/* MINNRSUBSCRIPTS */
+	   0,	/* SUBSARRAYNULL */
+	   0,	/* FATALERROR1 */
+	   0,	/* NAMECOUNT2HI */
+	   0,	/* INVNAMECOUNT */
+	   0,	/* FATALERROR2 */
+	   0,	/* TIME2LONG */
+	   0,	/* VARNAME2LONG */
+	   0,	/* SIMPLEAPINEST */
+	   0,	/* CALLINTCOMMIT */
+	   0,	/* CALLINTROLLBACK */
 	};

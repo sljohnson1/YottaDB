@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2006-2017 Fidelity National Information	*
+ * Copyright (c) 2006-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
@@ -63,7 +63,7 @@
 #include "gtmmsg.h"
 #include "repl_sem.h"
 #include "have_crit.h"			/* needed for ZLIB_COMPRESS */
-#include "deferred_signal_handler.h"	/* needed for ZLIB_COMPRESS */
+#include "deferred_exit_handler.h"	/* needed for ZLIB_COMPRESS */
 #include "gtm_zlib.h"
 #include "repl_sort_tr_buff.h"
 #include "replgbl.h"
@@ -705,7 +705,7 @@ int gtmsource_process(void)
 	gtmsource_local = jnlpool->gtmsource_local;
 	gtmsource_msgp = NULL;
 	gtmsource_msgbufsiz = MAX_REPL_MSGLEN;
-	if (ZLIB_CMPLVL_NONE != gtm_zlib_cmp_level)
+	if (ZLIB_CMPLVL_NONE != ydb_zlib_cmp_level)
 		gtmsource_cmpmsgp = NULL;
 
 	assert(REPL_POLL_WAIT < MILLISECS_IN_SEC);
@@ -760,7 +760,7 @@ int gtmsource_process(void)
 	for (reg = gd_header->regions, region_top = gd_header->regions + gd_header->n_regions; reg < region_top; reg++)
 	{
 		csa = &FILE_INFO(reg)->s_addrs;
-		if (max_epoch_interval < csa->hdr->epoch_interval)
+		if ((max_epoch_interval < csa->hdr->epoch_interval) && (MAX_EPOCH_INTERVAL >= csa->hdr->epoch_interval))
 			max_epoch_interval = csa->hdr->epoch_interval;
 	}
 	/* Since we want to wait at least a couple of minutes before timing out on the latch, ensure max_epoch_interval
@@ -1307,7 +1307,7 @@ int gtmsource_process(void)
 		 * previously sent a REPL_CMP2UNCMP message.
 		 */
 		gtmsource_local->repl_zlib_cmp_level = repl_zlib_cmp_level = ZLIB_CMPLVL_NONE;	/* no compression by default */
-		if (!gtmsource_received_cmp2uncmp_msg && (ZLIB_CMPLVL_NONE != gtm_zlib_cmp_level))
+		if (!gtmsource_received_cmp2uncmp_msg && (ZLIB_CMPLVL_NONE != ydb_zlib_cmp_level))
 		{
 			if (REPL_PROTO_VER_MULTISITE_CMP <= remote_side->proto_ver)
 			{	/* Receiver server is running a version of GT.M that supports compression of replication stream.

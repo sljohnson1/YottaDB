@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
@@ -87,8 +87,10 @@
 # include "gv_trigger.h"
 # include "gtm_trigger.h"
 #endif
+#include "libyottadb.h"
+#include "setup_error.h"
 
-GBLREF	boolean_t		ctrlc_on, created_core, dont_want_core, in_gvcst_incr, run_time;
+GBLREF	boolean_t		created_core, dont_want_core, in_gvcst_incr, run_time;
 GBLREF	boolean_t		ztrap_explicit_null;		/* whether $ZTRAP was explicitly set to NULL in this frame */
 GBLREF	dollar_ecode_type	dollar_ecode;			/* structure containing $ECODE related information */
 GBLREF	dollar_stack_type	dollar_stack;
@@ -112,7 +114,7 @@ GBLREF	spdesc			indr_stringpool, rts_stringpool, stringpool;
 GBLREF	stack_frame		*frame_pointer, *zyerr_frame, *error_frame;
 GBLREF	tp_frame		*tp_pointer;
 GBLREF	tp_region		*tp_reg_list;		/* Chained list of regions in this transaction not cleared on tp_restart */
-GBLREF	uint4			gtmDebugLevel;		/* Debug level */
+GBLREF	uint4			ydbDebugLevel;		/* Debug level */
 GBLREF	uint4			process_id;
 GBLREF	unsigned char		*msp, *restart_ctxt, *restart_pc, *stacktop, *stackwarn, *tp_sp, *tpstacktop, *tpstackwarn;
 GBLREF	unsigned short		proc_act_type;
@@ -159,7 +161,6 @@ error_def(ERR_TPTIMEOUT);
 error_def(ERR_UNSOLCNTERR);
 
 boolean_t clean_mum_tstart(void);
-void setup_error(sgmnt_addrs *csa, int argcnt, ...);
 
 /* When we restart generated code after handling an error, verify that we are not in the frame or one created on its
  * behalf that invoked a trigger or spanning node and caused a dynamic TSTART to be done on its behalf. This can happen
@@ -169,14 +170,16 @@ void setup_error(sgmnt_addrs *csa, int argcnt, ...);
  * errors, perhaps interminably. In both the trigger and spanning-node cases, the MUM_TSTART we are about to execute unrolls
  * the C stack preventing any return to the C frame that did the implicit tstart and prevents it from being committed so
  * it must be rolled back.
+ * Note: But no trollback should occur in case of a simpleAPI started TP (which is also an implicit TP). It is "ydb_tp_s"
+ * that will do the trollback in that case. Hence the "!tp_pointer->ydb_tp_s_tstart" check below.
  */
-#define MUM_TSTART_FRAME_CHECK										\
-{													\
-	if (GTMTRIG_ONLY((0 == gtm_trigger_depth) &&) tp_pointer && tp_pointer->implicit_tstart) 	\
-	{												\
-		DEBUG_ONLY(donot_INVOKE_MUMTSTART = FALSE);						\
-		OP_TROLLBACK(-1);	/* Unroll implicit TP frame */					\
-	}												\
+#define MUM_TSTART_FRAME_CHECK												\
+{															\
+	if ((0 == gtm_trigger_depth) && tp_pointer && tp_pointer->implicit_tstart && !tp_pointer->ydb_tp_s_tstart)	\
+	{														\
+		DEBUG_ONLY(donot_INVOKE_MUMTSTART = FALSE);								\
+		OP_TROLLBACK(-1);	/* Unroll implicit TP frame */							\
+	}														\
 }
 
 /* Since a call to SET_ZSTATUS may cause the stringpool expansion, record whether we are using an indirection pool or not
@@ -224,18 +227,6 @@ boolean_t clean_mum_tstart(void)
 		return TRUE;
 	}
 	return (NULL != err_act);
-}
-
-/* Routine to setup an error in util_outbuff as if rts_error had put it there. Used when we morph ERR_TPRETRY
- * to ERR_TPRESTNESTERR. Requires a va_list var containing the args so do this in this separate routine.
- */
-void setup_error(sgmnt_addrs *csa, int argcnt, ...)
-{
-	va_list		var;
-
-	VAR_START(var, argcnt);
-	gtm_putmsg_list(csa, argcnt, var);
-	va_end(var);
 }
 
 CONDITION_HANDLER(mdb_condition_handler)
@@ -363,8 +354,8 @@ CONDITION_HANDLER(mdb_condition_handler)
 				 * prevents an assert failure in UNWIND. START_CH would have done a active_ch-- So we need a
 				 * active_ch[1] to get at the desired active_ch. See similar code in tp_restart.c.
 				 */
-				UNIX_ONLY(assert(active_ch[1].dollar_tlevel >= dollar_tlevel);)
-				UNIX_ONLY(DEBUG_ONLY(active_ch[1].dollar_tlevel = dollar_tlevel;))
+				assert(active_ch[1].dollar_tlevel >= dollar_tlevel);
+				DEBUG_ONLY(active_ch[1].dollar_tlevel = dollar_tlevel);
 				UNWIND(NULL, NULL);
 			}
 			/* "tp_restart" has succeeded so we have unwound back to the return point but check if the
@@ -374,8 +365,21 @@ CONDITION_HANDLER(mdb_condition_handler)
 			 */
 			if (!(SFT_TRIGR & frame_pointer->type) && tp_pointer && tp_pointer->implicit_tstart)
 			{
+				if (tp_pointer->ydb_tp_s_tstart)
+				{	/* This is a TP transaction started by a "ydb_tp_s" call. Since "mdb_condition_handler"
+					 * is handling the TPRESTART error, it is a call-in. So set return code to ERR_TPRETRY
+					 * that way the "ydb_ci" call can return this to the caller and that can take
+					 * appropriate action. Note that we should not use YDB_TP_RESTART here as that
+					 * is a negative value returned only by the simpleAPI (ydb_*_s*() functions) and
+					 * not "ydb_ci".
+					 */
+					rc = ERR_TPRETRY;
+				}
 				mumps_status = rc;
 				DBGEHND((stderr, "mdb_condition_handler: Returning to implicit TSTART originator\n"));
+				/* Do dbg-only dollar_tlevel adjustment just like done in previous UNWIND invocation */
+				assert(active_ch[1].dollar_tlevel >= dollar_tlevel);
+				DEBUG_ONLY(active_ch[1].dollar_tlevel = dollar_tlevel);
 				UNWIND(NULL, NULL);
 			}
 			assert(!donot_INVOKE_MUMTSTART);
@@ -479,13 +483,12 @@ CONDITION_HANDLER(mdb_condition_handler)
 		 * case methods exist in the future for this module to be driven without invoking cond_core_ch
 		 * first.
 		 */
-		if (!(GDL_DumpOnStackOFlow & gtmDebugLevel) &&
+		if (!(GDL_DumpOnStackOFlow & ydbDebugLevel) &&
 		    ((int)ERR_STACKOFLOW == SIGNAL || (int)ERR_STACKOFLOW == arg
 		     || (int)ERR_MEMORY == SIGNAL || (int)ERR_MEMORY == arg))
 		{
 			MUMPS_EXIT;	/* Do a clean exit rather than messy core exit */
 		}
-		gtm_dump();
 		TERMINATE;
 	}
 #	ifdef GTM_TRIGGER
@@ -666,7 +669,7 @@ CONDITION_HANDLER(mdb_condition_handler)
 		if (!repeat_error)
 			/* This has already been done if we are re-throwing the error */
 			outofband_clear();
-		if (!trans_action && !ctrlc_on && !(frame_pointer->type & SFT_DM))
+		if (!trans_action && !dm_action && !(frame_pointer->type & SFT_DM))
 		{
 			if (!repeat_error)
 			{

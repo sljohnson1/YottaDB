@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2013-2017 Fidelity National Information	*
+ * Copyright (c) 2013-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -434,7 +437,7 @@ STATICFNDEF boolean_t op_fnzpeek_attach_recvpool(void)
 void	op_fnzpeek(mval *structid, int offset, int len, mval *format, mval *ret)
 {
 	void			*zpeekadr;
-	UINTPTR_T		prmpeekadr;
+	UINTPTR_T		prmpeekadr = 0;
 	struct sigaction	new_action, prev_action_bus, prev_action_segv;
 	sigset_t		savemask;
 	int			errtoraise, rc, rslt;
@@ -545,7 +548,7 @@ void	op_fnzpeek(mval *structid, int offset, int len, mval *format, mval *ret)
 			}
 			/* PO_GDRREG opcode examines only the region's fields so does not need the region to be open.
 			 * All the rest need it to be open. If there are any errors in the open (e.g. statsdb specified
-			 * and gtm_statsdir env var is too long etc.) then handle it by issuing an error.
+			 * and ydb_statsdir env var is too long etc.) then handle it by issuing an error.
 			 */
 			if ((PO_GDRREG != mnemonic_opcode) && !r_ptr->open)
 			{
@@ -589,6 +592,7 @@ void	op_fnzpeek(mval *structid, int offset, int len, mval *format, mval *ret)
 			zpeekadr = (&FILE_INFO(r_ptr)->s_addrs)->hdr;
 			break;
 		case PO_GDRREG:		/* r_ptr set from option processing */
+			assert(arg_supplied);	/* 4SCA: Assigned value is garbage or undefined, even though args are required */
 			zpeekadr = r_ptr;
 			break;
 		case PO_NLREG:		/* r_ptr set from option processing */
@@ -668,6 +672,7 @@ void	op_fnzpeek(mval *structid, int offset, int len, mval *format, mval *ret)
 			}
 			break;
 		case PO_PEEK:		/* prmpeekadr set up in argument processing */
+			assert(prmpeekadr); /* 4SCA: Assigned value is garbage or undefined */
 			zpeekadr = (void *)prmpeekadr;
 			break;
 		default:

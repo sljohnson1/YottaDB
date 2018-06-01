@@ -25,12 +25,12 @@
 #include "create_fatal_error_zshow_dmp.h"
 
 GBLREF	int4		exi_condition;
-GBLREF	uint4		gtmDebugLevel;
+GBLREF	uint4		ydbDebugLevel;
 GBLREF	volatile int4	gtmMallocDepth;
 GBLREF	uint4		process_id;
 GBLREF	int		process_exiting;
 
-/* Create GTM_FATAL_ERROR* ZSHOW dump file for given fatal condition */
+/* Create YDB_FATAL_ERROR* ZSHOW dump file for given fatal condition */
 void create_fatal_error_zshow_dmp(int4 signal)
 {
 	unsigned char	dump_fn[YDB_PATH_MAX], *dump_fn_ptr;
@@ -43,20 +43,20 @@ void create_fatal_error_zshow_dmp(int4 signal)
 	PRN_ERROR;
 	assert(process_exiting);
 	if (0 == gtmMallocDepth && ((SIGBUS != exi_condition && SIGSEGV != exi_condition)
-				    || (GDL_ZSHOWDumpOnSignal & gtmDebugLevel)))
+				    || (GDL_ZSHOWDumpOnSignal & ydbDebugLevel)))
 	{	/* For this dumpable condition, create a ZSHOW "*" dump for review. First, build the name we
 		 * want the report to have.
 		 */
-		MEMCPY_LIT(dump_fn, GTMFATAL_ERROR_DUMP_FILENAME);
-		dump_fn_ptr = dump_fn + (SIZEOF(GTMFATAL_ERROR_DUMP_FILENAME) - 1);
+		MEMCPY_LIT(dump_fn, YDBFATAL_ERROR_DUMP_FILENAME);
+		dump_fn_ptr = dump_fn + (SIZEOF(YDBFATAL_ERROR_DUMP_FILENAME) - 1);
 		dump_fn_ptr = i2asc(dump_fn_ptr, process_id);
 		*dump_fn_ptr++ = '_';
 		/* Use bumped value of jobexam_counter but don't actually increment the counter. The actual increment
 		 * is done in jobexam_dump() as part of the default file name (not used here).
 		 */
 		dump_fn_ptr = i2asc(dump_fn_ptr, (TREF(jobexam_counter) + 1));
-		MEMCPY_LIT(dump_fn_ptr, GTMFATAL_ERROR_DUMP_FILETYPE);
-		dump_fn_ptr += (SIZEOF(GTMFATAL_ERROR_DUMP_FILETYPE) - 1);
+		MEMCPY_LIT(dump_fn_ptr, YDBFATAL_ERROR_DUMP_FILETYPE);
+		dump_fn_ptr += (SIZEOF(YDBFATAL_ERROR_DUMP_FILETYPE) - 1);
 		dump_fn_mval.mvtype = MV_STR;
 		dump_fn_mval.str.addr = (char *)dump_fn;
 		dump_fn_mval.str.len = INTCAST(dump_fn_ptr - dump_fn);

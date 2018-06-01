@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -50,7 +53,7 @@
 #include "anticipatory_freeze.h"
 
 #include "gtmrecv.h"
-#include "deferred_signal_handler.h"
+#include "deferred_exit_handler.h"
 #include "repl_instance.h"
 #include "format_targ_key.h"
 
@@ -407,8 +410,8 @@ trans_num t_end(srch_hist *hist1, srch_hist *hist2, trans_num ctn)
 			assert(CDB_STAGNATE > t_tries);
 			goto failed_skip_revert;
 		}
-		/* Assert that if gtm_gvundef_fatal is non-zero, then we better not be about to signal a GVUNDEF */
-		assert(!TREF(gtm_gvundef_fatal) || !ready2signal_gvundef_lcl);
+		/* Assert that if ydb_gvundef_fatal is non-zero, then we better not be about to signal a GVUNDEF */
+		assert(!TREF(ydb_gvundef_fatal) || !ready2signal_gvundef_lcl);
 		assert(!TREF(donot_commit));    /* We should never commit a transaction that was determined restartable */
 		DEBUG_ONLY(tmp_jnlpool = jnlpool;)
 		if (csa->now_crit && !csa->hold_onto_crit)
@@ -802,7 +805,7 @@ trans_num t_end(srch_hist *hist1, srch_hist *hist2, trans_num ctn)
 	if (!is_mm && !WCS_GET_SPACE(reg, cw_set_depth + 1, NULL))
 	{
 		assert(cnl->wc_blocked);	/* only reason we currently know why wcs_get_space could fail */
-		assert(gtm_white_box_test_case_enabled);
+		assert(ydb_white_box_test_case_enabled);
 		SET_TRACEABLE_VAR(cnl->wc_blocked, TRUE);
 		BG_TRACE_PRO_ANY(csa, wc_blocked_t_end_hist);
 		SET_CACHE_FAIL_STATUS(status, csd);
@@ -996,8 +999,8 @@ trans_num t_end(srch_hist *hist1, srch_hist *hist2, trans_num ctn)
 		/* gv_target can be NULL in case of DSE MAPS etc. */
 		DEBUG_GVT_CLUE_VALIDATE(gv_target);	/* Validate that gvt has valid first_rec, clue & last_rec fields */
 #	endif
-	/* Assert that if gtm_gvundef_fatal is non-zero, then we better not be about to signal a GVUNDEF */
-	assert(!TREF(gtm_gvundef_fatal) || !ready2signal_gvundef_lcl);
+	/* Assert that if ydb_gvundef_fatal is non-zero, then we better not be about to signal a GVUNDEF */
+	assert(!TREF(ydb_gvundef_fatal) || !ready2signal_gvundef_lcl);
 	/* check bit maps for usage */
 	if (0 != cw_map_depth)
 	{	/* Bit maps from mu_reorg (from a call to mu_swap_blk) or mu_reorg_upgrd_dwngrd */
@@ -1768,7 +1771,6 @@ skip_cr_array:
 	assert(!csa->now_crit || csa->hold_onto_crit);
 	assert(cdb_sc_normal == status);
 	REVERT;	/* no need for t_ch to be invoked if any errors occur after this point */
-	DEFERRED_EXIT_HANDLING_CHECK; /* now that all crits are released, check if deferred signal/exit handling needs to be done */
 	assert(update_trans);
 	if (REPL_ALLOWED(csa) && IS_DSE_IMAGE)
 	{
@@ -1846,7 +1848,7 @@ failed_skip_revert:
 	 * is if hold_onto_crit is set to TRUE in which case t_commit_cleanup honors it. Assert accordingly.
 	 */
 	assert(!csa->now_crit || !NEED_TO_RELEASE_CRIT(t_tries, status) || csa->hold_onto_crit);
-	DEFERRED_EXIT_HANDLING_CHECK; /* now that all crits are released, check if deferred signal/exit handling needs to be done */
+	DEFERRED_SIGNAL_HANDLING_CHECK; /* now that crits are released, check if deferred signal/exit handling needs to be done */
 	t_retry(status);
 	/* Note that even though cw_stagnate is used only in the final retry, it is possible we restart in the final retry
 	 * (see "final_retry_ok" codes in cdb_sc_table.h) and so a CWS_RESET is necessary in that case. It is anyways a no-op

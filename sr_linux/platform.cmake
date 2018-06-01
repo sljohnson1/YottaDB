@@ -3,10 +3,10 @@
 # Copyright (c) 2013-2017 Fidelity National Information		#
 # Services, Inc. and/or its subsidiaries. All rights reserved.	#
 #								#
-# Copyright (c) 2017,2018 YottaDB LLC. and/or its subsidiaries.	#
+# Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.	#
 # All rights reserved.						#
 #								#
-# Copyright (c) 2017,2018 Stephen L Johnson.			#
+# Copyright (c) 2017-2018 Stephen L Johnson.			#
 # All rights reserved.						#
 #								#
 #	This source code contains the intellectual property	#
@@ -88,7 +88,7 @@ else()
   #   See http://stackoverflow.com/questions/21689124/mkstemp-and-fdopen-in-cygwin-1-7-28
   # Cygwin warns if you add -fPIC that the compiled code is already position
   # independent. So don't add -fPIC
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ansi -fPIC ")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99 -fPIC ")
 endif()
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsigned-char -Wmissing-prototypes -Wreturn-type -Wpointer-sign")
 # Add flags for warnings that we want and don't want.
@@ -136,11 +136,40 @@ add_definitions(
   )
 
 # Linker
-set(gtm_link  "-Wl,-u,gtm_filename_to_id -Wl,-u,ydb_zstatus -Wl,--version-script,\"${YDB_BINARY_DIR}/ydbexe_symbols.export\"")
+set(ydb_link  "-Wl,-u,gtm_filename_to_id -Wl,-u,ydb_zstatus -Wl,--version-script,\"${YDB_BINARY_DIR}/ydbexe_symbols.export\"")
 set(gtm_dep   "${YDB_BINARY_DIR}/ydbexe_symbols.export")
 
 set(libyottadb_link "-Wl,-u,ydb_ci -Wl,-u,gtm_filename_to_id -Wl,-u,gtm_is_main_thread")
 set(libyottadb_link "${libyottadb_link} -Wl,-u,accumulate -Wl,-u,is_big_endian -Wl,-u,to_ulong")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_child_init")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_data_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_delete_excl_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_delete_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_file_id_free")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_file_is_identical")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_file_name_to_id")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_fork_n_core")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_free")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_get_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_hiber_start")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_hiber_start_wait_any")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_incr_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_lock_decr_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_lock_incr_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_lock_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_malloc")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_node_next_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_node_previous_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_set_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_stdout_stderr_adjust")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_str2zwr_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_subscript_next_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_subscript_previous_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_thread_is_main")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_timer_cancel")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_timer_start")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_tp_s")
+set(libyottadb_link "${libyottadb_link} -Wl,-u,ydb_zwr2str_s")
 set(libyottadb_link "${libyottadb_link} -Wl,--version-script,\"${YDB_BINARY_DIR}/yottadb_symbols.export\"")
 set(libyottadb_dep  "${YDB_BINARY_DIR}/ydbexe_symbols.export")
 

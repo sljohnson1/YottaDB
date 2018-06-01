@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2012-2017 Fidelity National Information	*
+ * Copyright (c) 2012-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -68,6 +68,7 @@
 #endif
 
 #define DIR_SEPARATOR		'/'
+#define UNALIAS			"unalias -a; "
 
 /* the LITERAL version of the macro should be used over STRING whenever possible for efficiency reasons */
 #define	STR_LIT_LEN(LITERAL)			(SIZEOF(LITERAL) - 1)
@@ -143,5 +144,18 @@ MBSTART {					\
 
 /* Shared between GT.M and external plugins */
 #define EXT_NEW 		"_%YGTM"
+
+/* Define types that are needed by external plugins (e.g. encryption plugin) here (and not in mdef.h) */
+
+/* mstr needs to be defined before including "mdefsp.h".  */
+typedef int mstr_len_t;
+typedef struct
+{
+	unsigned int	char_len;	/* Character length */
+	mstr_len_t	len;
+	char		*addr;
+} mstr;
+
+typedef int		boolean_t;
 
 #endif /* GTM_COMMON_DEFS_H */

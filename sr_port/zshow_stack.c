@@ -3,7 +3,7 @@
  * Copyright (c) 2001-2013 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -30,7 +30,7 @@
 #define ZINTR_FRAME		"    ($ZINTERRUPT) "
 #define DEVERR_FRAME		"    (Device Error)"
 #define DIR_MODE_MESS		"    (Direct mode) "
-#define CALL_IN_BASE_FRAME	"    (Call-In Level Entry)"
+#define CALL_IN_BASE_FRAME	"    " CALL_IN_M_ENTRYREF
 #define UNK_LOC_MESS		"        Indirection"
 #define INDR_OVERFLOW		"        (Max indirect frames per counted frame exceeded for ZSHOW ""S"" -"	\
                                 " some indirect frames not processed)"
@@ -67,7 +67,7 @@ void zshow_stack(zshow_out *output, boolean_t show_checksum)
 			zshow_output(output, &v);
 			v.len = 0;
 		}
-		fp = SKIP_BASE_FRAME(fp);
+		SKIP_BASE_FRAMES(fp);			/* Updates fp */
 		if (NULL == fp->old_frame_pointer)
 			break; /* Endpoint.. */
 		if (!(fp->type & SFT_COUNT) || ((fp->type & SFT_ZINTR) && (fp->flags & SFF_INDCE)))

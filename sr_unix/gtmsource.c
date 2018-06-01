@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -65,6 +65,7 @@
 #include "gtm_zlib.h"
 #include "fork_init.h"
 #include "gtmio.h"
+#include "io.h"
 #ifdef GTM_TLS
 #include "gtm_repl.h"
 #endif
@@ -103,6 +104,7 @@ GBLREF	gd_region		*ftok_sem_reg;
 GBLREF	boolean_t		holds_sem[NUM_SEM_SETS][NUM_SRC_SEMS];
 GBLREF	IN_PARMS		*cli_lex_in_ptr;
 GBLREF	uint4			mutex_per_process_init_pid;
+GBLREF	io_pair			io_std_device;
 
 error_def(ERR_JNLPOOLSETUP);
 error_def(ERR_MUPCLIERR);
@@ -281,11 +283,21 @@ int gtmsource()
 		 */
 		gtmsource_exit(isalive ? SRV_ALIVE : SRV_ERR);
 	}
+	/* At this point, the parent source server startup command would have done an "io_init" and attached to
+	 * fds = 0, 1 and 2. The child source server is going to close fd=0 here (i.e. point to /dev/null) and
+	 * about to close 1 and 2 a little later in repl_log_init (i.e. point to the source server log file).
+	 * Therefore any io initializations done in io_init (e.g. io_std_device etc.) are soon going to become
+	 * invalid. Since io_std_device.out is checked in the "util_out_print_vaparm" function to decide whether
+	 * to use M IO (write through the device opened by io_init) vs writing directly to stderr (fd=2), it is
+	 * best to clear io_std_device.out for the child process. That way any errors in case they occur go to
+	 * stderr (if available) instead of /dev/null.
+	 */
+	io_std_device.out = NULL;
 	/* Point stdin to /dev/null */
 	OPENFILE("/dev/null", O_RDONLY, null_fd);
 	if (0 > null_fd)
 		rts_error_csa(CSA_ARG(NULL) ERR_REPLERR, RTS_ERROR_LITERAL("Failed to open /dev/null for read"), errno, 0);
-	FCNTL3(null_fd, F_DUPFD, 0, rc);
+	DUP2(null_fd, 0, rc);
 	if (0 > rc)
 		rts_error_csa(CSA_ARG(NULL) ERR_REPLERR, RTS_ERROR_LITERAL("Failed to set stdin to /dev/null"), errno, 0);
 	CLOSEFILE(null_fd, rc);
@@ -321,7 +333,7 @@ int gtmsource()
 		send_msg_csa(CSA_ARG(NULL) VARLSTCNT(7) ERR_JNLPOOLSETUP, 0, ERR_TEXT, 2,
 				RTS_ERROR_LITERAL("Source server error in setsid"), errno);
 #	endif /* REPL_DEBUG_NOBACKGROUND */
-	if (ZLIB_CMPLVL_NONE != gtm_zlib_cmp_level)
+	if (ZLIB_CMPLVL_NONE != ydb_zlib_cmp_level)
 		gtm_zlib_init();	/* Open zlib shared library for compression/decompression */
 	REPL_DPRINT1("Setting up regions\n");
 	gvinit();
@@ -444,7 +456,7 @@ int gtmsource()
 #	ifdef DEBUG
 	if (is_jnlpool_creator)
 	{
-		if (TREF(gtm_test_fake_enospc) && CUSTOM_ERRORS_LOADED)
+		if (TREF(ydb_test_fake_enospc) && CUSTOM_ERRORS_LOADED)
 		{	/* Only the journal pool creator drives fake_enospc */
 			srand(time(NULL));
 			start_timer((TID)fake_enospc, ENOSPC_INIT_DURATION, fake_enospc, 0, NULL);

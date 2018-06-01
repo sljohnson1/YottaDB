@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
@@ -20,30 +20,16 @@
 #ifndef MDEF_included
 #define MDEF_included
 
-/* mstr needs to be defined before including "mdefsp.h".  */
-typedef int mstr_len_t;
-#ifndef __vms
-typedef struct
-{
-	unsigned int	char_len;	/* Character length */
-	mstr_len_t	len;
-	char		*addr;
-} mstr;
+#ifdef __clang__
+#define CLANG_SCA_ANALYZER_NORETURN __attribute__((analyzer_noreturn))
+#else
+#define CLANG_SCA_ANALYZER_NORETURN
+#endif
+
 #  define MSTR_CONST(name, string)		mstr name = {0, LEN_AND_LIT(string)}
 #  define MSTR_DEF(name, length, string)	mstr name = {0, length, string}
 #  define MIDENT_CONST(name, string)	    mident name = {0, LEN_AND_LIT(string)}
 #  define MIDENT_DEF(name, length, string)      mident name = {0, length, string}
-#else
-typedef struct
-{
-	mstr_len_t	len;		/* Byte length */
-	char		*addr;
-} mstr;
-#  define MSTR_CONST(name, string)		mstr name = {LEN_AND_LIT(string)}
-#  define MSTR_DEF(name, length, string)	mstr name = {length, string}
-#  define MIDENT_CONST(name, string)	    mident name = {LEN_AND_LIT(string)}
-#  define MIDENT_DEF(name, length, string)      mident name = {length, string}
-#endif
 
 #define GET_MSTR_LEN(X, Y)	GET_ULONG(X, Y)
 #define PUT_MSTR_LEN(X, Y)	PUT_ULONG(X, Y)
@@ -111,7 +97,7 @@ typedef unsigned int 	uint4;		/* 4-byte unsigned integer */
 /* Anchor for thread-global structure rather than individual global vars */
 GBLREF void	*gtm_threadgbl;		/* Accessed through TREF macro in gtm_threadgbl.h */
 
-#ifdef DEBUG
+#if defined(DEBUG) || defined(STATIC_ANALYSIS_NORETURN)
 error_def(ERR_ASSERT);
 # define assert(x) ((x) ? 1 : rts_error_csa(CSA_ARG(NULL) VARLSTCNT(7) ERR_ASSERT, 5, LEN_AND_LIT(__FILE__), __LINE__,		\
 						(SIZEOF(#x) - 1), (#x)))
@@ -329,11 +315,6 @@ typedef UINTPTR_T uintszofptr_t;
 #define MAX_LONG_IN_DOUBLE	0xFFFFFFFFFFFFF /*Max Fraction part in IEEE double format*/
 #define MAX_INT_IN_BYTE		255
 
-#ifndef _AIX
-#	ifndef __sparc
-	typedef int		boolean_t;
-#	endif
-#endif
 typedef char		bool;
 typedef unsigned char	mreg;
 typedef int4		mint;
@@ -556,6 +537,9 @@ MBSTART {					/* also requires threaddef DCL and SETUP*/				\
 	if ((TREF(tpnotacidtime)).m[1] < TMS)										\
 		TPNOTACID_CHECK(NOTACID);										\
 } MBEND
+
+#define INVOKE_RESTART	rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_TPRETRY);
+
 #define MV_FORCE_CANONICAL(X)	((((X)->mvtype & MV_NM) == 0 ? s2n(X) : 0 ) \
 				 ,((X)->mvtype & MV_NUM_APPROX ? (X)->mvtype &= MV_NUM_MASK : 0 ))
 #define MV_IS_NUMERIC(X)	(((X)->mvtype & MV_NM) != 0)
@@ -673,8 +657,8 @@ MBSTART {					/* also requires threaddef DCL and SETUP*/				\
 #define PADLEN(value, bndry) (int)(ROUND_UP2((sm_long_t)(value), bndry) - (sm_long_t)(value))
 
 #define CALLFROM	LEN_AND_LIT(__FILE__), __LINE__
-void gtm_assert(int file_name_len, char file_name[], int line_no);
-int gtm_assert2(int condlen, char *condtext, int file_name_len, char file_name[], int line_no);
+void gtm_assert(int file_name_len, char file_name[], int line_no)				CLANG_SCA_ANALYZER_NORETURN;
+int gtm_assert2(int condlen, char *condtext, int file_name_len, char file_name[], int line_no)	CLANG_SCA_ANALYZER_NORETURN;
 #define GTMASSERT	(gtm_assert(CALLFROM))
 #define assertpro(x) ((x) ? 1 : gtm_assert2((SIZEOF(#x) - 1), (#x), CALLFROM))
 #ifdef UNIX
@@ -692,8 +676,8 @@ int gtm_assert2(int condlen, char *condtext, int file_name_len, char file_name[]
 #define	DBG_MARK_RTS_ERROR_UNUSABLE
 #endif
 
-int	rts_error(int argcnt, ...);
-int	rts_error_csa(void *csa, int argcnt, ...);		/* Use CSA_ARG(CSA) for portability */
+int	rts_error(int argcnt, ...)			CLANG_SCA_ANALYZER_NORETURN;
+int	rts_error_csa(void *csa, int argcnt, ...)	CLANG_SCA_ANALYZER_NORETURN;	/* Use CSA_ARG(CSA) for portability */
 #define CSA_ARG(CSA)	(CSA),
 void	dec_err(uint4 argcnt, ...);
 #elif defined(VMS)
@@ -1452,12 +1436,15 @@ qw_num	gtm_byteswap_64(qw_num num64);
 #define MINUTE			60	/* seconds in a minute */
 #define HOUR			3600	/* one hour in seconds 60 * 60 */
 #define ONEDAY			86400	/* seconds in a day */
-#define MILLISECS_IN_SEC	1000	/* millseconds in a second */
-#define MICROSEC_IN_SEC		1000000 /* microseconds in a second */
-#define MICROSECS_IN_MSEC	1000	/* microseconds in a millisecond */
-#define E_6			1000000
-#define E_9			1000000000
-#define E_18			1000000000000000000LL
+#define MILLISECS_IN_SEC	((int)1E3)	/* millseconds in a second */
+#define MICROSECS_IN_SEC		((int)1E6)	/* microseconds in a second */
+#define MICROSECS_IN_MSEC	((int)1E3)	/* microseconds in a millisecond */
+#define NANOSECS_IN_SEC		((int)1E9)	/* nanoseconds in a second */
+#define NANOSECS_IN_MSEC	((int)1E6)	/* nanoseconds in a millisecond */
+#define NANOSECS_IN_USEC	((int)1E3)	/* nanoseconds in a microsecond */
+#define E_6			((int)1E6)
+#define E_9			((int)1E9)
+#define E_18			((long long)1E18)
 
 #define ASSERT_IN_RANGE(low, x, high)	assert((low <= x) && (x <= high))
 
@@ -1864,7 +1851,7 @@ enum
 #define OPERATOR_LOG_MSG												\
 {															\
 	error_def(ERR_TEXT);	/* BYPASSOK */										\
-	if (gtm_white_box_test_case_enabled && (WBTEST_OPER_LOG_MSG == gtm_white_box_test_case_number))			\
+	if (ydb_white_box_test_case_enabled && (WBTEST_OPER_LOG_MSG == ydb_white_box_test_case_number))			\
 	{														\
 		send_msg_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_TEXT, 2, LEN_AND_LIT("Send message to operator log"));	\
 	}														\
@@ -1907,12 +1894,6 @@ enum
 
 /* Ensures that the argument is defined if it was not skipped. */
 #define MV_FORCE_DEFINED_UNLESS_SKIPARG(V)	((!M_ARG_SKIPPED(V)) ? (MV_FORCE_DEFINED(V)) : (V))
-
-#ifdef _AIX
-#define LIBPATH_ENV		"LIBPATH"
-#else
-#define LIBPATH_ENV		"LD_LIBRARY_PATH"
-#endif
 
 #ifdef DEBUG
   /* Define macros that are helpful in verifying that functions in libyottadb.so are only invoked

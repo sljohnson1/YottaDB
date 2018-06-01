@@ -53,6 +53,8 @@
 				 */
 #include "wbox_test_init.h"
 #include "gtm_limits.h"
+#include "get_syslog_flags.h"
+#include "ydb_getenv.h"
 
 #define ROOTUID 0
 #define ROOTGID 0
@@ -60,8 +62,7 @@
 #define MAX_ALLOWABLE_LEN 256
 #define ASCIICTLMAX	32  /* space character */
 #define ASCIICTLMIN	0   /* NULL character */
-#define GTM_TMP		"gtm_tmp"
-#define YDB_DIST	"ydb_dist"
+#define YDB_TMP		"ydb_tmp"
 #define	SUB_PATH_TO_GTMSECSHRDIR "/gtmsecshrdir"
 #define	REL_PATH_TO_CURDIR "."
 #define	REL_PATH_TO_GTMSECSHR "./gtmsecshr"
@@ -75,8 +76,6 @@
 #define GTM_TZ				"TZ"
 #define TZLOCATOR			"TZ="
 #define NEWLINE				0x0a
-#define GTM_WHITE_BOX_TEST_CASE_ENABLE	"gtm_white_box_test_case_enable"
-#define GTM_WHITE_BOX_TEST_CASE_NUMBER	"gtm_white_box_test_case_number"
 #define GTMETCDIRPATH			"/etc"
 #define BADGTMETCDIRPATH		"/bogusdirnotetc"
 #define GTMENVIRONFILE			"environment"
@@ -91,37 +90,37 @@ extern	char	**environ;
  * in the syslog.
  */
 #define ERR_SECSHRCLEARENVFAILED		\
-	"%%GTM-E-SECSHRCLEARENVFAILED, clearenv failed. gtmsecshr will not be started\n"
+	"%%YDB-E-SECSHRCLEARENVFAILED, clearenv failed. gtmsecshr will not be started\n"
 #define ERR_SECSHRCHDIRFAILED1			\
-	"%%GTM-E-SECSHRCHDIRFAILED1, chdir failed on %s, errno %d. gtmsecshr will not be started\n"
+	"%%YDB-E-SECSHRCHDIRFAILED1, chdir failed on %s, errno %d. gtmsecshr will not be started\n"
 #define ERR_SECSHRCHDIRFAILED2			\
-	"%%GTM-W-SECSHRCHDIRFAILED2, chdir failed on %s, errno %d. gtmsecshr will be started with GMT timezone\n"
+	"%%YDB-W-SECSHRCHDIRFAILED2, chdir failed on %s, errno %d. gtmsecshr will be started with GMT timezone\n"
 #define ERR_SECSHREXECLFAILED			\
-	"%%GTM-E-SECSHREXECLFAILED, execl of %s failed\n"
+	"%%YDB-E-SECSHREXECLFAILED, execl of %s failed\n"
 #define ERR_SECSHRYDBDIST2LONG			\
-	"%%GTM-E-SECSHRYDBDIST2LONG, ydb_dist env var too long. gtmsecshr will not be started\n"
-#define ERR_SECSHRGTMTMP2LONG			\
-	"%%GTM-E-SECSHRGTMTMP2LONG, gtm_tmp env var too long. gtmsecshr will not be started\n"
+	"%%YDB-E-SECSHRYDBDIST2LONG, ydb_dist env var too long. gtmsecshr will not be started\n"
+#define ERR_SECSHRYDBTMP2LONG			\
+	"%%YDB-E-SECSHRYDBTMP2LONG, ydb_tmp/gtm_tmp env var too long. gtmsecshr will not be started\n"
 #define ERR_SECSHRNOYDBDIST			\
-	"%%GTM-E-SECSHRNOYDBDIST, ydb_dist env var does not exist. gtmsecshr will not be started\n"
+	"%%YDB-E-SECSHRNOYDBDIST, ydb_dist env var does not exist. gtmsecshr will not be started\n"
 #define ERR_SECSHRNOTOWNEDBYROOT		\
-	"%%GTM-E-SECSHRNOTOWNEDBYROOT, %s not owned by root. gtmsecshr will not be started\n"
+	"%%YDB-E-SECSHRNOTOWNEDBYROOT, %s not owned by root. gtmsecshr will not be started\n"
 #define ERR_SECSHRNOTSETUID			\
-	"%%GTM-E-SECSHRNOTSETUID, %s not set-uid. gtmsecshr will not be started\n"
+	"%%YDB-E-SECSHRNOTSETUID, %s not set-uid. gtmsecshr will not be started\n"
 #define ERR_SECSHRPERMINCRCT			\
-	"%%GTM-E-SECSHRPERMINCRCT, %s permissions incorrect (%04o). gtmsecshr will not be started\n"
+	"%%YDB-E-SECSHRPERMINCRCT, %s permissions incorrect (%04o). gtmsecshr will not be started\n"
 #define ERR_SECSHRSETYDBDISTFAILED		\
-	"%%GTM-E-SECSHRSETYDBDISTFAILED, setenv for ydb_dist failed. gtmsecshr will not be started\n"
-#define ERR_SECSHRSETGTMTMPFAILED		\
-	"%%GTM-E-SECSHRSETGTMTMPFAILED, setenv for gtm_tmp failed. gtmsecshr will not be started\n"
+	"%%YDB-E-SECSHRSETYDBDISTFAILED, setenv for ydb_dist failed. gtmsecshr will not be started\n"
+#define ERR_SECSHRSETYDBTMPFAILED		\
+	"%%YDB-E-SECSHRSETYDBTMPFAILED, setenv for ydb_tmp failed. gtmsecshr will not be started\n"
 #define ERR_SECSHRSETUIDFAILED			\
-	"%%GTM-E-SECSHRSETUIDFAILED, setuid failed. gtmsecshr will not be started\n"
+	"%%YDB-E-SECSHRSETUIDFAILED, setuid failed. gtmsecshr will not be started\n"
 #define ERR_SECSHRSTATFAILED			\
-	"%%GTM-E-SECSHRSTATFAILED, stat failed on %s, errno %d. gtmsecshr will not be started\n"
+	"%%YDB-E-SECSHRSTATFAILED, stat failed on %s, errno %d. gtmsecshr will not be started\n"
 #define ERR_SECSHRTZFAIL			\
-	"%%GTM-W-SECSHRTZFAIL, %s %d. gtmsecshr will start with TZ set to GMT\n"
+	"%%YDB-W-SECSHRTZFAIL, %s %d. gtmsecshr will start with TZ set to GMT\n"
 #define ERR_SECSHRWRITABLE			\
-	"%%GTM-E-SECSHRWRITABLE, %s writable. gtmsecshr will not be started\n"
+	"%%YDB-E-SECSHRWRITABLE, %s writable. gtmsecshr will not be started\n"
 
 /*
 Make sure these are synced with the above. We need this comment for the InfoHub tools to generate message
@@ -134,13 +133,13 @@ SECSHRCHDIRFAILED2	<chdir failed on !AD, errno !UL. gtmsecshr will be started wi
 SECSHRCLEARENVFAILED	<clearenv failed. gtmsecshr will not be started>/error/fao=0!/ansi=0
 SECSHREXECLFAILED	<execl of !AD failed>/error/fao=2!/ansi=0
 SECSHRYDBDIST2LONG	<ydb_dist env var too long. gtmsecshr will not be started>/error/fao=0!/ansi=0
-SECSHRGTMTMP2LONG	<gtm_tmp env var too long. gtmsecshr will not be started>/error/fao=0!/ansi=0
+SECSHRYDBTMP2LONG	<ydb_tmp/gtm_tmp env var too long. gtmsecshr will not be started>/error/fao=0!/ansi=0
 SECSHRNOYDBDIST		<ydb_dist env var does not exist. gtmsecshr will not be started>/error/fao=0!/ansi=0
 SECSHRNOTOWNEDBYROOT	<!AD not owned by root. gtmsecshr will not be started>/error/fao=3!/ansi=0
 SECSHRNOTSETUID		<!AD not set-uid. gtmsecshr will not be started>/error/fao=2!/ansi=0
 SECSHRPERMINCRCT	<!AD permissions incorrect (0!UL). gtmsecshr will not be started>/error/fao=3!/ansi=0
 SECSHRSETYDBDISTFAILED	<setenv for ydb_dist failed. gtmsecshr will not be started>/error/fao=0!/ansi=0
-SECSHRSETGTMTMPFAILED	<setenv for gtm_tmp failed. gtmsecshr will not be started>/error/fao=0!/ansi=0
+SECSHRSETYDBTMPFAILED	<setenv for ydb_tmp failed. gtmsecshr will not be started>/error/fao=0!/ansi=0
 SECSHRSETUIDFAILED	<setuid failed. gtmsecshr will not be started>/error/fao=0!/ansi=0
 SECSHRSTATFAILED	<stat failed on !AD, errno !UL. gtmsecshr will not be started>/error/fao=3!/ansi=0
 SECSHRTZFAIL		<!AD !UL. gtmsecshr will start with TZ set to GMT>/warning/fao=3!/ansi=0
@@ -173,13 +172,13 @@ int main()
 	struct stat	gtm_secshrdir_stat;
 	struct stat	gtm_secshr_stat;
 	char 		ydb_dist_val[MAX_ENV_VAR_VAL_LEN];
-	char 		gtm_tmp_val[MAX_ENV_VAR_VAL_LEN];
+	char 		ydb_tmp_val[MAX_ENV_VAR_VAL_LEN];
 	char 		gtm_secshrdir_path[MAX_ENV_VAR_VAL_LEN];
 	char 		gtm_secshrdir_path_display[MAX_ENV_VAR_VAL_LEN];
 	char 		gtm_secshr_path[MAX_ENV_VAR_VAL_LEN];
 	char 		gtm_secshr_path_display[MAX_ENV_VAR_VAL_LEN];
 	char 		gtm_secshr_orig_path[MAX_ENV_VAR_VAL_LEN];
-	boolean_t	gtm_tmp_exists = FALSE;
+	boolean_t	ydb_tmp_exists = FALSE;
 	int		rc;
 	sigset_t	mask;
 #	ifdef _AIX
@@ -196,23 +195,23 @@ int main()
 	 */
 	sigemptyset(&mask);
 	sigprocmask(SIG_SETMASK, &mask, NULL);	/* BYPASSOK(sigprocmask) */
-	OPENLOG("GTMSECSHRINIT", LOG_PID | LOG_CONS | LOG_NOWAIT, LOG_USER);
+	OPENLOG("GTMSECSHRINIT", get_syslog_flags(), LOG_USER);
 #	ifdef _AIX
 #	ifdef DEBUG
-	/* Use some very simplistic processing to obtain values for $gtm_white_box_test_case_enable/number since we are basically
+	/* Use some very simplistic processing to obtain values for $ydb_white_box_test_case_enable/number since we are basically
 	 * standalone in this routine without the ability to call into other mumps routines. We fetch the value and convert it
 	 * numerically as best as possible. For the boolean enable flag, If it's non-zero - it's true else false. No errors raised
 	 * here for conversions.
 	 */
-	env_var_ptr = getenv(GTM_WHITE_BOX_TEST_CASE_ENABLE);
+	env_var_ptr = ydb_getenv(YDBENVINDX_WHITE_BOX_TEST_CASE_ENABLE, NULL_SUFFIX, NULL_IS_YDB_ENV_MATCH);
 	if (NULL != env_var_ptr)
 	{
-		gtm_white_box_test_case_enabled = atoi(env_var_ptr);
-		if (gtm_white_box_test_case_enabled)
+		ydb_white_box_test_case_enabled = atoi(env_var_ptr);
+		if (ydb_white_box_test_case_enabled)
 		{
-			env_var_ptr = getenv(GTM_WHITE_BOX_TEST_CASE_NUMBER);
+			env_var_ptr = ydb_getenv(YDBENVINDX_WHITE_BOX_TEST_CASE_NUMBER, NULL_SUFFIX, NULL_IS_YDB_ENV_MATCH);
 			if (NULL != env_var_ptr)
-				gtm_white_box_test_case_number = atoi(env_var_ptr);
+				ydb_white_box_test_case_number = atoi(env_var_ptr);
 		}
 	}
 #	endif /* DEBUG */
@@ -305,7 +304,7 @@ int main()
 #	endif /* _AIX */
 	ret = 0; /* start positive */
 	/* get the ones we need */
-	if (env_var_ptr = getenv(YDB_DIST))		/* Warning - assignment */
+	if (env_var_ptr = ydb_getenv(YDBENVINDX_DIST_ONLY, NULL_SUFFIX, NULL_IS_YDB_ENV_MATCH))	/* Warning - assignment */
 	{
 		if (MAX_ALLOWABLE_LEN < (strlen(env_var_ptr) + STR_LIT_LEN(SUB_PATH_TO_GTMSECSHRDIR)
 		    + STR_LIT_LEN(GTMSECSHR_BASENAME)))
@@ -330,16 +329,16 @@ int main()
 		SYSLOG(LOG_USER | LOG_INFO, ERR_SECSHRNOYDBDIST);
 		ret = -1;
 	}
-	if (env_var_ptr = getenv(GTM_TMP))		/* Warning - assignment */
+	if (env_var_ptr = ydb_getenv(YDBENVINDX_TMP, NULL_SUFFIX, NULL_IS_YDB_ENV_MATCH))	/* Warning - assignment */
 	{
 		if (MAX_ALLOWABLE_LEN < strlen(env_var_ptr))
 		{
-			SYSLOG(LOG_USER | LOG_INFO, ERR_SECSHRGTMTMP2LONG);
+			SYSLOG(LOG_USER | LOG_INFO, ERR_SECSHRYDBTMP2LONG);
 			ret = -1;
 		} else
 		{
-			gtm_tmp_exists = TRUE;
-			strcpy(gtm_tmp_val, env_var_ptr);
+			ydb_tmp_exists = TRUE;
+			strcpy(ydb_tmp_val, env_var_ptr);
 		}
 	}
 	if (!ret)
@@ -356,18 +355,18 @@ int main()
 			ret = -1;
 		}
 		/* add the ones we need */
-		status = setenv(YDB_DIST, ydb_dist_val, TRUE);
+		status = setenv(ydbenvname[YDBENVINDX_DIST] + 1, ydb_dist_val, TRUE);	/* + 1 to skip leading $ */
 		if (status)
 		{
 			SYSLOG(LOG_USER | LOG_INFO, ERR_SECSHRSETYDBDISTFAILED);
 			ret = -1;
 		}
-		if (gtm_tmp_exists)
+		if (ydb_tmp_exists)
 		{
-			status = setenv(GTM_TMP, gtm_tmp_val, TRUE);
+			status = setenv(YDB_TMP, ydb_tmp_val, TRUE);
 			if (status)
 			{
-				SYSLOG(LOG_USER | LOG_INFO, ERR_SECSHRSETGTMTMPFAILED);
+				SYSLOG(LOG_USER | LOG_INFO, ERR_SECSHRSETYDBTMPFAILED);
 				ret = -1;
 			}
 		}

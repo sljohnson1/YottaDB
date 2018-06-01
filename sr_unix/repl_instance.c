@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -39,8 +42,7 @@
 #include "gtmrecv.h"
 #include "iosp.h"
 #include "gtmio.h"
-#include "gtm_logicals.h"
-#include "trans_log_name.h"
+#include "ydb_trans_log_name.h"
 #include "gtmmsg.h"
 #include "repl_sem.h"
 #include "repl_instance.h"
@@ -102,7 +104,7 @@ error_def(ERR_TEXT);
  *	bufsize: the buffer size caller gives. If exceeded, it trucates file name.
  *	gd_ptr: global directory for extended reference, otherwise NULL.
  * Return Value:
- *	non NULL, on success - 1 if from gtm_repl_instance, otherwise global directory
+ *	non NULL, on success - 1 if from ydb_repl_instance, otherwise global directory
  *	NULL, otherwise.
  */
 struct gd_addr_struct *repl_inst_get_name(char *fn, unsigned int *fn_len, unsigned int bufsize, instname_act error_action,
@@ -486,7 +488,7 @@ void	repl_inst_ftok_sem_lock(void)
 	if (!udi->grabbed_ftok_sem)
 	{
 		assert(0 == have_crit(CRIT_HAVE_ANY_REG));
-		if (!ftok_sem_lock(reg, FALSE))
+		if (!ftok_sem_lock(reg, IMMEDIATE_FALSE))
 		{
 			assert(FALSE);
 			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_REPLFTOKSEM, 2, LEN_AND_STR(udi->fn));

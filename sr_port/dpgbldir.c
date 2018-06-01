@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -32,7 +35,7 @@
 #include "gtmio.h"
 #include "dpgbldir_sysops.h"
 #include "targ_alloc.h"
-#include "gtm_logicals.h"
+#include "ydb_logicals.h"
 #include "zshow.h"
 #ifdef DEBUG
 #include "gtm_caseconv.h"
@@ -81,8 +84,8 @@ gd_addr *zgbldir(mval *v)
 			return name->gd_ptr;
 	if (!v->str.len)
 	{
-		temp_mstr.addr = GTM_GBLDIR;
-		temp_mstr.len = SIZEOF(GTM_GBLDIR) - 1;
+		temp_mstr.addr = (char *)YDB_GBLDIR;
+		temp_mstr.len = STRLEN(YDB_GBLDIR);
 		tran_name = get_name(&temp_mstr);
 	} else
 		tran_name = get_name(&v->str);

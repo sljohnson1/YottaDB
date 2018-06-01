@@ -1,6 +1,7 @@
 /****************************************************************
  *								*
- * Copyright 2003, 2013 Fidelity Information Services, Inc	*
+ * Copyright (c) 2003-2018 Fidelity National Information	*
+ * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
  * All rights reserved.						*

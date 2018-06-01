@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -39,7 +42,7 @@
 GBLREF	boolean_t		dollar_zininterrupt;
 GBLREF	d_socket_struct		*newdsocket;	/* in case jobinterrupt */
 GBLREF	int			socketus_interruptus;
-GBLREF	int4			gtm_max_sockets;
+GBLREF	int4			ydb_max_sockets;
 GBLREF	mv_stent		*mv_chain;
 GBLREF	stack_frame		*frame_pointer;
 GBLREF	unsigned char		*stackbase, *stacktop, *msp, *stackwarn;
@@ -315,6 +318,11 @@ boolean_t iosocket_connect(socket_struct *sockptr, int4 msec_timeout, boolean_t 
 							if (ETIMEDOUT == save_errno || ECONNREFUSED == save_errno
 								|| ENOENT == save_errno)
 								need_connect = need_socket = TRUE;
+							else if (socket_local == sockptr->protocol)
+							{	/* AF_UNIX sockets do not continue the connect in background */
+								need_connect = TRUE;
+								need_socket = need_select = FALSE;
+							}
 							save_errno = 0;
 							res = -1;	/* do the outer loop again */
 						}
@@ -467,7 +475,7 @@ boolean_t iosocket_connect(socket_struct *sockptr, int4 msec_timeout, boolean_t 
 			real_sockintr->newdsocket = sockintr->newdsocket = newdsocket;
 			real_dsocketptr->mupintr = dsocketptr->mupintr = TRUE;
 			d_socket_struct_len = SIZEOF(d_socket_struct) +
-						(SIZEOF(socket_struct) * (gtm_max_sockets - 1));
+						(SIZEOF(socket_struct) * (ydb_max_sockets - 1));
 			ENSURE_STP_FREE_SPACE(d_socket_struct_len);
 			PUSH_MV_STENT(MVST_ZINTDEV);
 			mv_chain->mv_st_cont.mvs_zintdev.buffer_valid = FALSE;

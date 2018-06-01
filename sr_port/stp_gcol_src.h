@@ -3,7 +3,7 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  * Copyright (c) 2017 Stephen L Johnson. All rights reserved.	*
@@ -108,7 +108,7 @@ GBLREF int4			LVGC_interval;				/* dead data GC done every LVGC_interval stringp
 GBLREF boolean_t		suspend_lvgcol;
 GBLREF hash_table_str		*complits_hashtab;
 GBLREF mval			*alias_retarg;
-GBLREF io_pair			*io_std_device;
+GBLREF io_pair			io_std_device;
 GTMTRIG_ONLY(GBLREF mval 	dollar_ztwormhole;)
 DEBUG_ONLY(GBLREF   boolean_t	ok_to_UNWIND_in_exit_handling;)
 
@@ -181,10 +181,10 @@ MBSTART {														\
 		mstr	**curstr;						\
 										\
 		for (curstr = array; curstr < topstr; curstr++)			\
-			assert(*curstr != MSTR1);				\
+			assert(*curstr != (MSTR1));				\
 	)									\
 	assert(topstr < arraytop);						\
-	assert(0 < MSTR1->len);							\
+	assert(0 < (MSTR1)->len);						\
 	/* It would be nice to test for maxlen as well here but that causes	\
 	 * some usages of stringpool to fail as other types of stuff are	\
 	 * built into the stringppool besides strings.				\
@@ -466,7 +466,7 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 	lv_blk			*lv_blk_ptr;
 	lv_val			*lvp, *lvlimit;
 	lvTreeNode		*node, *node_limit;
-	mstr			**cstr, *x;
+	mstr			**cstr, *x, **cstr_top, *mstrp, *mstrp_top;
 	mv_stent		*mvs;
 	mval			*m, **mm, **mmtop, *mtop;
 	intszofptr_t		lv_subs;
@@ -685,7 +685,7 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 				MSTR_STPG_ADD(&l->iod->error_handler);
 				/* If this is a split $principal, protect error_handler defined on the output side */
 				if ((l->iod->pair.in != l->iod->pair.out)
-				    && (l->iod->pair.out == io_std_device->out))
+				    && (l->iod->pair.out == io_std_device.out))
 					MSTR_STPG_ADD(&l->iod->pair.out->error_handler);
 				rm_ptr = (rm == l->iod->type) ? (d_rm_struct *)l->iod->dev_sp : NULL;
 				if (NULL != rm_ptr)
@@ -838,21 +838,21 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 		 */
 		if (NULL != frame_pointer)
 		{
-			for (sf = frame_pointer; sf < (stack_frame *)stackbase; sf = sf->old_frame_pointer)
-			{	/* Cover temp mvals in use */
-				if (NULL == sf->old_frame_pointer)
-				{	/* If trigger enabled, may need to jump over a base frame */
-					/* TODO - fix this to jump over call-ins base frames as well */
-#					ifdef GTM_TRIGGER
-					if (SFT_TRIGR & sf->type)
-					{	/* We have a trigger base frame, back up over it */
-						sf = *(stack_frame **)(sf + 1);
-						assert(sf);
-						assert(sf->old_frame_pointer);
-					} else
-#					endif
-						break;
-				}
+			for (sf = frame_pointer; sf && (sf < (stack_frame *)stackbase); sf = sf->old_frame_pointer)
+			{	/* Move temp mvals in use to stringpool
+				 *
+				 * While running through the stack, we need to skip over base frames so we process the
+				 * entire stack with the following caveats:
+				 *   1. The original base frame (has a type of SFT_COUNT but is otherwise unmarked) is the
+				 *	absolute bottom of the stack so breaks the loop. This will only be seen when the
+				 *	base frame (for execution) is a call-in frame either for simpleAPI or for call-ins.
+				 *   2. When running mumps, a different base frame, similar in construction to the original
+				 *	base frame described above, that also has a type of SFT_COUNT should stop rearward
+				 *	stack travel and break the loop.
+				 */
+				SKIP_BASE_FRAMES(sf);		/* Updates sf */
+				if (NULL == sf)
+					break;
 				assert(sf->temps_ptr);
 				if (sf->temps_ptr >= (unsigned char *)sf)
 					continue;
@@ -893,6 +893,28 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 				for (restore_ent = tf->vars; restore_ent; restore_ent = restore_ent->next)
 					MSTR_STPG_ADD(&(restore_ent->key.var_name));
 				tf = tf->old_tp_frame;
+			}
+		}
+		/* Check for mstrs being used by the simple API */
+		if (0 < TREF(sapi_mstrs_for_gc_indx))
+		{	/* The simpleAPI has some mstrs in use it needs protected. Add the array's addresses to
+			 * our own array of mstrs.
+			 */
+			for (cstr = TADR(sapi_mstrs_for_gc_ary), cstr_top = cstr + TREF(sapi_mstrs_for_gc_indx);
+			     cstr < cstr_top;
+			     cstr++)
+			{
+				MSTR_STPG_PUT(*cstr);
+			}
+		}
+		if (0 < TREF(sapi_query_node_subs_cnt))
+		{	/* Another set of mstrs used to return subscripts from ydb_node_{next,previous}_s() */
+			for (mstrp = TREF(sapi_query_node_subs), mstrp_top = mstrp + TREF(sapi_query_node_subs_cnt);
+			     mstrp < mstrp_top;
+			     mstrp++)
+			{
+				if (0 < mstrp->len)
+					MSTR_STPG_PUT(mstrp);
 			}
 		}
 	}

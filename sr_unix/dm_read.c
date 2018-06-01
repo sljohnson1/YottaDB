@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -200,6 +203,7 @@ void	dm_read (mval *v)
 	active_device = io_curr_device.in;
 	io_ptr = io_curr_device.in;
 	tt_ptr = (d_tt_struct *)(io_ptr->dev_sp);
+	SETTERM_IF_NEEDED(io_ptr, tt_ptr);
 	assert (io_ptr->state == dev_open);
 	if (tt == io_curr_device.out->type)
 		iott_flush(io_curr_device.out);
@@ -282,7 +286,7 @@ void	dm_read (mval *v)
 	}
 	mask = tt_ptr->term_ctrl;
 	if (dmterm_default)
-	{	/* $view("DMTERM") or gtm_dmterm is set. Ignore the customized terminators; use the default terinators */
+	{	/* $view("DMTERM") or ydb_dmterm is set. Ignore the customized terminators; use the default terinators */
 		memset(&mask_term.mask[0], 0, SIZEOF(io_termmask));
 		if (utf8_active)
 		{

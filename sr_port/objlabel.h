@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
@@ -20,7 +20,7 @@
 #define	YDB_OMAGIC	0411
 #define	GTM_OMAGIC	0407	/* old impure format */
 
-#define	OBJ_UNIX_LABEL	3	/* Increment each binary version change */
+#define	OBJ_UNIX_LABEL	4	/* Increment each binary version change */
 #ifdef USHBIN_SUPPORTED
 #  define MAGIC_COOKIE_V5	((GTM_OMAGIC << 16) + (8 << 4) + 0) /* A version stake for V5. Should never change. */
 #  define OBJ_LABEL	OBJ_UNIX_LABEL

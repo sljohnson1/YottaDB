@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
@@ -75,8 +75,14 @@ GBLREF	tp_region		*grlist;
 
 LITREF char			*gtm_dbversion_table[];
 
+#define GTMCRYPT_ERRLIT		"during GT.M startup"
+
 error_def(ERR_ASYNCIONOV4);
 error_def(ERR_ASYNCIONOMM);
+error_def(ERR_CRYPTDLNOOPEN);
+error_def(ERR_CRYPTDLNOOPEN2);
+error_def(ERR_CRYPTINIT);
+error_def(ERR_CRYPTINIT2);
 error_def(ERR_CRYPTNOMM);
 error_def(ERR_DBBLKSIZEALIGN);
 error_def(ERR_DBFILOPERR);
@@ -121,7 +127,8 @@ int4 mupip_set_file(int db_fn_len, char *db_fn)
 				hard_spin_status, inst_freeze_on_error_status, key_size_status, locksharesdbcrit,
 				lock_space_status, mutex_space_status, null_subs_status, qdbrundown_status, rec_size_status,
 				reg_exit_stat, rc, rsrvd_bytes_status, sleep_cnt_status, save_errno, stats_status, status,
-				status1, stdnullcoll_status;
+				status1, stdnullcoll_status, reorg_sleep_nsec_status;
+	int			gtmcrypt_errno;
 	int4			defer_time, new_cache_size, new_disk_wait, new_extn_count, new_hard_spin, new_key_size,
 				new_lock_space, new_mutex_space, new_null_subs, new_rec_size, new_sleep_cnt, new_spin_sleep,
 				new_stdnullcoll, reserved_bytes, spin_sleep_status, read_only_status;
@@ -130,6 +137,7 @@ int4 mupip_set_file(int db_fn_len, char *db_fn)
 	unsigned short		acc_spec_len = MAX_ACC_METH_LEN, ver_spec_len = MAX_DB_VER_LEN;
 	gd_segment		*seg;
 	uint4			fsb_size, reservedDBFlags;
+	uint4			reorg_sleep_nsec;
 	ZOS_ONLY(int 		realfiletag;)
 	DCL_THREADGBL_ACCESS;
 
@@ -166,7 +174,27 @@ int4 mupip_set_file(int db_fn_len, char *db_fn)
 		need_standalone = TRUE;
 	defer_allocate_status = cli_present("DEFER_ALLOCATE");
 	if (encryptable_status = cli_present("ENCRYPTABLE"))
+	{
 		need_standalone = TRUE;
+		if (CLI_PRESENT == encryptable_status)
+		{	/* When turning on encryption, validate the encryption setup */
+			INIT_PROC_ENCRYPTION(NULL, gtmcrypt_errno);
+			if (0 != gtmcrypt_errno)
+			{
+				CLEAR_CRYPTERR_MASK(gtmcrypt_errno);
+				assert(!IS_REPEAT_MSG_MASK(gtmcrypt_errno));
+				assert((ERR_CRYPTDLNOOPEN == gtmcrypt_errno) || (ERR_CRYPTINIT == gtmcrypt_errno));
+				if (ERR_CRYPTDLNOOPEN == gtmcrypt_errno)
+					gtmcrypt_errno = ERR_CRYPTDLNOOPEN2;
+				else if (ERR_CRYPTINIT == gtmcrypt_errno)
+					gtmcrypt_errno = ERR_CRYPTINIT2;
+				gtmcrypt_errno = SET_CRYPTERR_MASK(gtmcrypt_errno);
+				GTMCRYPT_REPORT_ERROR(gtmcrypt_errno, rts_error, SIZEOF(GTMCRYPT_ERRLIT) - 1,
+						GTMCRYPT_ERRLIT);
+			}
+		} else /* When disabling encryption ignore invalid encryption setup errors */
+			TREF(mu_set_file_noencryptable) = TRUE;
+	}
 	if (read_only_status = cli_present("READ_ONLY")) /* Note assignment */
 		need_standalone = TRUE;
 	encryption_complete_status = cli_present("ENCRYPTIONCOMPLETE");
@@ -242,6 +270,25 @@ int4 mupip_set_file(int db_fn_len, char *db_fn)
 			exit_stat |= EXIT_ERR;
 		}
 		need_standalone = TRUE;
+	}
+	if (reorg_sleep_nsec_status = cli_present("REORG_SLEEP_NSEC"))
+	{
+		if (cli_get_int("REORG_SLEEP_NSEC", (int4 *)&reorg_sleep_nsec))
+		{
+			if (NANOSECS_IN_SEC <= reorg_sleep_nsec)
+			{	/* >= NANOSECS_IN_SEC not supported */
+				gtm_putmsg_csa(CSA_ARG(NULL) VARLSTCNT(6) ERR_MUPIPSET2BIG, 4, reorg_sleep_nsec,
+					LEN_AND_LIT("REORG_SLEEP_NSEC"), NANOSECS_IN_SEC - 1);
+				exit_stat |= EXIT_ERR;
+			}
+			/* Minimum value supported is 0 so no minimum checks needed since < 0 is a negative number
+			 * which cannot currently be passed as input through the CLI anyways.
+			 */
+		} else
+		{
+			gtm_putmsg_csa(CSA_ARG(NULL) VARLSTCNT(4) ERR_SETQUALPROB, 2, LEN_AND_LIT("REORG_SLEEP_NSEC"));
+			exit_stat |= EXIT_ERR;
+		}
 	}
 	if (locksharesdbcrit = cli_present("LCK_SHARES_DB_CRIT"))
 		need_standalone = TRUE;
@@ -815,6 +862,8 @@ int4 mupip_set_file(int db_fn_len, char *db_fn)
 				SLEEP_SPIN_CNT(csd) = new_sleep_cnt;
 			if (spin_sleep_status)
 				SPIN_SLEEP_MASK(csd) = new_spin_sleep;
+			if (reorg_sleep_nsec_status)
+				csd->reorg_sleep_nsec = reorg_sleep_nsec;
 			/* --------------------- report results ------------------------- */
 			if (asyncio_status)
 			{
@@ -857,6 +906,9 @@ int4 mupip_set_file(int db_fn_len, char *db_fn)
 			if (spin_sleep_status)
 				util_out_print("Database file !AD now has spin sleep mask !UL",
 					TRUE, fn_len, fn, SPIN_SLEEP_MASK(csd));
+                        if (reorg_sleep_nsec_status)
+				util_out_print("Database file !AD now has reorg sleep nanoseconds !UL",
+                                        TRUE, fn_len, fn, csd->reorg_sleep_nsec);
 			if (got_standalone)
 			{
 				DB_LSEEKWRITE(NULL, ((unix_db_info *)NULL), NULL, fd, 0, pvt_csd, SIZEOF(sgmnt_data), status);

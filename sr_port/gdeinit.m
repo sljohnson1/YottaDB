@@ -3,10 +3,10 @@
 ; Copyright (c) 2001-2017 Fidelity National Information		;
 ; Services, Inc. and/or its subsidiaries. All rights reserved.	;
 ;								;
-; Copyright (c) 2017,2018 YottaDB LLC. and/or its subsidiaries.	;
+; Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.	;
 ; All rights reserved.						;
 ;								;
-; Copyright (c) 2017,2018 Stephen L Johnson.			;
+; Copyright (c) 2017-2018 Stephen L Johnson.			;
 ; All rights reserved.						;
 ;								;
 ;	This source code contains the intellectual property	;
@@ -477,7 +477,7 @@ syntabi:
 UNIX:
 	s hdrlab="GTCGBDUNX012"         ; must be concurrently maintained in gbldirnam.h!!!
 	i (gtm64=TRUE) s hdrlab="GTCGBDUNX112" ; the high order digit is a 64-bit flag
-	s tfile="$gtmgbldir"
+	s tfile="$ydb_gbldir"
 	s accmeth="\BG\MM"
 	s helpfile="$ydb_dist/gdehelp.gld"
 	s defdb="mumps.dat"

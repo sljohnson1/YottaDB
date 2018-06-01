@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2016 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
@@ -27,13 +27,14 @@
 #include "gtm_limits.h"
 
 #include <dlfcn.h>
+#include <errno.h>
 
 #include "cli.h"
 #include "stringpool.h"
 #include "rtnhdr.h"
 #include "stack_frame.h"
 #include "mvalconv.h"
-#include "libyottadb.h"
+#include "libyottadb_int.h"
 #include "lv_val.h"
 #include "fgncal.h"
 #include "gtmci.h"
@@ -79,6 +80,16 @@ GBLREF	u_casemap_t 		gtm_strToTitle_ptr;		/* Function pointer for gtm_strToTitle
 #include "alias.h"
 #include "parm_pool.h"
 #include "auto_zlink.h"
+#include "fileinfo.h"
+#include "filestruct.h"
+#include "gdscc.h"
+#include "gdskill.h"
+#include "jnl.h"
+#include "tp_frame.h"
+#include "buddy_list.h"		/* needed for tp.h */
+#include "hashtab_int4.h"	/* needed for tp.h and cws_insert.h */
+#include "tp.h"
+#include "ydb_getenv.h"
 
 GBLREF  stack_frame     	*frame_pointer;
 GBLREF  unsigned char		*msp;
@@ -101,6 +112,7 @@ GBLREF	char			ydb_dist[YDB_PATH_MAX];
 GBLREF	boolean_t		ydb_dist_ok_to_use;
 GBLREF	int			dollar_truth;
 GBLREF	CLI_ENTRY		mumps_cmd_ary[];
+GBLREF	tp_frame		*tp_pointer;
 GTMTRIG_DBG_ONLY(GBLREF ch_ret_type (*ch_at_trigger_init)();)
 
 LITREF  gtmImageName            gtmImageNames[];
@@ -117,7 +129,7 @@ error_def(ERR_DISTPATHMAX);
 error_def(ERR_FMLLSTMISSING);
 error_def(ERR_YDBDISTUNDEF);
 error_def(ERR_GTMSECSHRPERM);
-error_def(ERR_INVGTMEXIT);
+error_def(ERR_INVYDBEXIT);
 error_def(ERR_JOBLABOFF);
 error_def(ERR_MAXACTARG);
 error_def(ERR_MAXSTRLEN);
@@ -236,6 +248,7 @@ int ydb_cij(const char *c_rtn_name, char **arg_blob, int count, int *arg_types, 
 	intrpt_state_t		old_intrpt_state;
 	char			**arg_blob_ptr;
 	int			*java_arg_type;
+	boolean_t		ci_ret_code_quit_needed = FALSE;
 	DCL_THREADGBL_ACCESS;
 
 	SETUP_THREADGBL_ACCESS;
@@ -251,10 +264,28 @@ int ydb_cij(const char *c_rtn_name, char **arg_blob, int count, int *arg_types, 
 		send_msg_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_CALLINAFTERXIT);
 		return ERR_CALLINAFTERXIT;
 	}
-	if (!gtm_startup_active || !(frame_pointer->type & SFT_CI))
+	if (!gtm_startup_active)
 	{
 		if ((status = ydb_init()) != 0)		/* Note - sets fgncal_stack */
 			return status;
+	} else if (!(frame_pointer->type & SFT_CI))
+	{	/* "ydb_init" has already set up a call-in base frame (either for simpleAPI or for a call-in).
+		 * But the current frame is not a call-in base frame. So set a new/nested call-in base frame up.
+		 */
+		ydb_nested_callin();            /* Note - sets fgncal_stack */
+	} else if (dollar_tlevel && (tp_pointer->fp == frame_pointer) && tp_pointer->ydb_tp_s_tstart)
+	{	/* Current frame is already a call-in frame. If we are already in a TP transaction and simpleAPI/"ydb_tp_s"
+		 * had started this TP and the current "frame_pointer" was the current even at the time of "ydb_tp_s"
+		 * we need to create a nested call-in frame as part of this "ydb_ci" invocation (in order to detect a
+		 * CALLINTCOMMIT or CALLINTROLLBACK situation since simpleAPI and call-ins both create the same SFT_CI
+		 * type of call-in base frame).
+		 */
+		ydb_nested_callin();            /* Note - sets fgncal_stack */
+		/* Since this is a nested call-in created just for this "ydb_ci" invocation, we need to unwind this call-in
+		 * frame/stack when returning (unlike a regular "ydb_ci" invocation where we keep the environment as is
+		 * in the hope of future "ydb_ci" calls).
+		 */
+		ci_ret_code_quit_needed = TRUE;
 	}
 	GTM_PTHREAD_ONLY(assert(gtm_main_thread_id_set && pthread_equal(gtm_main_thread_id, pthread_self())));
 	assert(NULL == TREF(temp_fgncal_stack));
@@ -263,7 +294,7 @@ int ydb_cij(const char *c_rtn_name, char **arg_blob, int count, int *arg_types, 
 	ESTABLISH_RET(gtmci_ch, mumps_status);
 	if (!c_rtn_name)
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_CIRCALLNAME);
-	if (!TREF(ci_table))	/* Load the call-in table only once from env variable GTMCI. */
+	if (!TREF(ci_table))	/* Load the call-in table only once from env variable ydb_ci/GTMCI. */
 	{
 		TREF(ci_table) = citab_parse();
 		if (!TREF(callin_hashtab))
@@ -455,10 +486,32 @@ int ydb_cij(const char *c_rtn_name, char **arg_blob, int count, int *arg_types, 
 	intrpt_ok_state = old_intrpt_state;		/* Restore the old interrupt state. */
 	var_on_cstack_ptr = save_var_on_cstack_ptr;	/* Restore the old environment's var_on_cstack_ptr. */
 	if (1 != mumps_status)
-	{
-		/* dm_start() initializes mumps_status to 1 before execution. If mumps_status is not 1,
-		 * it is the unhandled error code propagated by $ZTRAP/$ETRAP (from mdb_condition_handler).
+	{	/* dm_start() initializes mumps_status to 1 before execution. If mumps_status is not 1,
+		 * it is either the unhandled error code propaged by $ZT/$ET (from mdb_condition_handler)
+		 * or zero on returning from ZGOTO 0 (ci_ret_code_quit).
 		 */
+		if (mumps_status)
+		{	/* This is an error codepath. Do cleanup of frames (including the call-in base frame for some errors)
+			 * and rethrow error if needed. Currently only the following error(s) need rethrow.
+			 *	ERR_TPRETRY
+			 * The above 3 errors indicate there is a parent M frame or ydb_tp_s frame at a lower
+			 * callin depth that needs to see this error.
+			 */
+			FGNCAL_UNWIND_CLEANUP;	/* Unwind all frames up to the call-in base frame */
+			assert(SFT_CI & frame_pointer->type);
+			if (ERR_TPRETRY == mumps_status)
+			{	/* These error(s) need to be rethrown. But before that unwind the call-in base frame */
+				if (NULL != frame_pointer)
+				{
+					ci_ret_code_quit();	/* Unwind the current invocation of call-in environment */
+					ci_ret_code_quit_needed = FALSE;
+				}
+				DRIVECH(mumps_status);
+				assert(FALSE);
+			}
+		}
+		if (ci_ret_code_quit_needed)
+			ci_ret_code_quit();	/* Unwind the current invocation of call-in environment */
 		return mumps_status;
 	}
 	ESTABLISH_RET(gtmci_ch, mumps_status);
@@ -540,6 +593,8 @@ int ydb_cij(const char *c_rtn_name, char **arg_blob, int count, int *arg_types, 
 	REVERT;
 	assert(NULL == TREF(temp_fgncal_stack));
 	FGNCAL_UNWIND;
+	if (ci_ret_code_quit_needed)
+		ci_ret_code_quit();	/* Unwind the current invocation of call-in environment */
 	return 0;
 }
 
@@ -566,11 +621,41 @@ int ydb_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 	stringkey       	symkey;
 	ht_ent_str		*syment;
 	intrpt_state_t		old_intrpt_state;
+	boolean_t		ci_ret_code_quit_needed = FALSE;
 	DCL_THREADGBL_ACCESS;
 
 	SETUP_THREADGBL_ACCESS;
 	VAR_COPY(var, temp_var);
 	added = FALSE;
+	/* Do the "ydb_init" (if needed) first as it would set gtm_threadgbl etc. which is needed to use TREF later */
+	if (!gtm_startup_active)
+	{
+		if ((status = ydb_init()) != 0)		/* Note - sets fgncal_stack */
+			return status;
+		/* Since we called "ydb_init" above, "gtm_threadgbl" would have been set to a non-null VALUE
+		 * and so any call to SETUP_THREADGBL_ACCESS done by the function that called this macro
+		 * needs to be redone to set "lcl_gtm_threadgbl" to point to this new "gtm_threadgbl".
+		 */
+		SETUP_THREADGBL_ACCESS;
+	} else if (!(frame_pointer->type & SFT_CI))
+	{	/* "ydb_init" has already set up a call-in base frame (either for simpleAPI or for a call-in).
+		 * But the current frame is not a call-in base frame. So set a new/nested call-in base frame up.
+		 */
+		ydb_nested_callin();            /* Note - sets fgncal_stack */
+	} else if (dollar_tlevel && (tp_pointer->fp == frame_pointer) && tp_pointer->ydb_tp_s_tstart)
+	{	/* Current frame is already a call-in frame. If we are already in a TP transaction and simpleAPI/"ydb_tp_s"
+		 * had started this TP and the current "frame_pointer" was the current even at the time of "ydb_tp_s"
+		 * we need to create a nested call-in frame as part of this "ydb_ci" invocation (in order to detect a
+		 * CALLINTCOMMIT or CALLINTROLLBACK situation since simpleAPI and call-ins both create the same SFT_CI
+		 * type of call-in base frame).
+		 */
+		ydb_nested_callin();            /* Note - sets fgncal_stack */
+		/* Since this is a nested call-in created just for this "ydb_ci" invocation, we need to unwind this call-in
+		 * frame/stack when returning (unlike a regular "ydb_ci" invocation where we keep the environment as is
+		 * in the hope of future "ydb_ci" calls).
+		 */
+		ci_ret_code_quit_needed = TRUE;
+	}
 	assert(NULL == TREF(gtmci_retval));
 	TREF(gtmci_retval) = NULL;
 	/* A prior invocation of ydb_exit would have set process_exiting = TRUE. Use this to disallow ydb_ci to be
@@ -582,18 +667,13 @@ int ydb_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 		send_msg_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_CALLINAFTERXIT);
 		return ERR_CALLINAFTERXIT;
 	}
-	if (!gtm_startup_active || !(frame_pointer->type & SFT_CI))
-	{
-		if ((status = ydb_init()) != 0)		/* Note - sets fgncal_stack */
-			return status;
-	}
 	assert(NULL == TREF(temp_fgncal_stack));
 	FGNCAL_UNWIND;		/* note - this is outside the establish since gtmci_ch calso calls fgncal_unwind() which,
 				 * if this failed, would lead to a nested error which we'd like to avoid */
 	ESTABLISH_RET(gtmci_ch, mumps_status);
 	if (!c_rtn_name)
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_CIRCALLNAME);
-	if (!TREF(ci_table))	/* load the call-in table only once from env variable GTMCI  */
+	if (!TREF(ci_table))	/* load the call-in table only once from env variable ydb_ci/GTMCI  */
 	{
 		TREF(ci_table) = citab_parse();
 		if (!TREF(callin_hashtab))
@@ -818,11 +898,32 @@ int ydb_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 	intrpt_ok_state = old_intrpt_state; 		/* Restore the old interrupt state */
 	var_on_cstack_ptr = save_var_on_cstack_ptr;	/* Restore the old environment's var_on_cstack_ptr */
 	if (1 != mumps_status)
-	{
-		/* dm_start() initializes mumps_status to 1 before execution. If mumps_status is not 1,
+	{	/* dm_start() initializes mumps_status to 1 before execution. If mumps_status is not 1,
 		 * it is either the unhandled error code propaged by $ZT/$ET (from mdb_condition_handler)
 		 * or zero on returning from ZGOTO 0 (ci_ret_code_quit).
 		 */
+		if (mumps_status)
+		{	/* This is an error codepath. Do cleanup of frames (including the call-in base frame)
+			 * and rethrow error if needed. Currently only the following error(s) need rethrow.
+			 *	ERR_TPRETRY
+			 * The above 3 errors indicate there is a parent M frame or ydb_tp_s frame at a lower
+			 * callin depth that needs to see this error.
+			 */
+			FGNCAL_UNWIND_CLEANUP;	/* Unwind all frames up to the call-in base frame */
+			assert(SFT_CI & frame_pointer->type);
+			if (ERR_TPRETRY == mumps_status)
+			{	/* These error(s) need to be rethrown. But before that unwind the call-in base frame */
+				if (NULL != frame_pointer)
+				{
+					ci_ret_code_quit();	/* Unwind the current invocation of call-in environment */
+					ci_ret_code_quit_needed = FALSE;
+				}
+				DRIVECH(mumps_status);
+				assert(FALSE);
+			}
+		}
+		if (ci_ret_code_quit_needed)
+			ci_ret_code_quit();	/* Unwind the current invocation of call-in environment */
 		return mumps_status;
 	}
 	ESTABLISH_RET(gtmci_ch, mumps_status);
@@ -923,6 +1024,8 @@ int ydb_ci_exec(const char *c_rtn_name, void *callin_handle, int populate_handle
 	REVERT;
 	assert(NULL == TREF(temp_fgncal_stack));
 	FGNCAL_UNWIND;
+	if (ci_ret_code_quit_needed)
+		ci_ret_code_quit();	/* Unwind the current invocation of call-in environment */
 	return 0;
 }
 
@@ -966,6 +1069,8 @@ int ydb_init()
 	int			dist_len, tmp_len;
 	char			path[YDB_PATH_MAX];
 	int			path_len;
+	int			save_errno;
+	int			status;
 	struct stat		stat_buf;
 	Dl_info			shlib_info;
 	DCL_THREADGBL_ACCESS;
@@ -985,7 +1090,7 @@ int ydb_init()
 		send_msg_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_CALLINAFTERXIT);
 		return ERR_CALLINAFTERXIT;
 	}
-	if (NULL == (dist = GETENV(YDB_DIST)))
+	if (NULL == (dist = ydb_getenv(YDBENVINDX_DIST_ONLY, NULL_SUFFIX, NULL_IS_YDB_ENV_MATCH)))
 	{	/* In a call-in and "ydb_dist" env var is not defined. Set it to full path of libyottadb.so
 		 * that contains the currently invoked "ydb_init" function.
 		 */
@@ -1012,9 +1117,26 @@ int ydb_init()
 				break;
 		}
 		*tmp_ptr = '\0';
-		/* First check the executable name is libyottadb.so. If not issue error. */
-		setenv(YDB_DIST, path, TRUE);
-		setenv("gtm_dist", path, TRUE);
+		/* Note that we still have not checked if the executable name is libyottadb.so.
+		 * We will do that a little later in "common_startup_init" below (after setting <ydb_dist>
+		 * env var) and issue a LIBYOTTAMISMTCH error if needed.
+		 */
+		status = setenv(ydbenvname[YDBENVINDX_DIST] + 1, path, TRUE);	/* + 1 to skip leading $ */
+		if (status)
+		{
+			assert(-1 == status);
+			save_errno = errno;
+			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(8) ERR_SYSCALL, 5,
+				RTS_ERROR_LITERAL("setenv(ydb_dist)"), CALLFROM, save_errno);
+		}
+		status = setenv(gtmenvname[YDBENVINDX_DIST] + 1, path, TRUE);	/* + 1 to skip leading $ */
+		if (status)
+		{
+			assert(-1 == status);
+			save_errno = errno;
+			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(8) ERR_SYSCALL, 5,
+				RTS_ERROR_LITERAL("setenv(gtm_dist)"), CALLFROM, save_errno);
+		}
 	}
 	/* else : "ydb_dist" env var is defined. Use that for later verification done inside "common_startup_init" */
 	if (!gtm_startup_active)
@@ -1024,7 +1146,7 @@ int ydb_init()
 		UNICODE_ONLY(gtm_strToTitle_ptr = &gtm_strToTitle);
 		GTM_ICU_INIT_IF_NEEDED;	/* Note: should be invoked after err_init (since it may error out) and before CLI parsing */
 		/* Ensure that $ydb_dist exists */
-		if (NULL == (dist = (char *)GETENV(YDB_DIST)))
+		if (NULL == (dist = ydb_getenv(YDBENVINDX_DIST_ONLY, NULL_SUFFIX, NULL_IS_YDB_ENV_MATCH)))
 			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_YDBDISTUNDEF);
 		/* Ensure that $ydb_dist is non-zero and does not exceed YDB_DIST_PATH_MAX */
 		dist_len = STRLEN(dist);
@@ -1069,6 +1191,7 @@ int ydb_init()
 		assert(gtm_startup_active);
 		assert(frame_pointer->type & SFT_CI);
 		TREF(gtmci_nested_level) = 1;
+		TREF(libyottadb_active_rtn) = LYDB_RTN_NONE;
 		/* Now that GT.M is initialized. Mark the new stack pointer (msp) so that errors
 		 * while executing an M routine do not unwind stack below this mark. It important that
 		 * the call-in frames (SFT_CI) that hold nesting information (eg. $ECODE/$STACK data
@@ -1076,37 +1199,40 @@ int ydb_init()
 		 */
 		SAVE_FGNCAL_STACK;
 	} else if (!(frame_pointer->type & SFT_CI))
-	{	/* Nested call-in: setup a new CI environment (additional SFT_CI base-frame).
-		 * Temporarily mark the beginning of the new stack so that initialization errors in
-		 * call-in frame do not unwind entries of the previous stack (see gtmci_ch). For the
-		 * duration that temp_fgncal_stack has a non-NULL value, it overrides fgncal_stack.
-		 */
-		TREF(temp_fgncal_stack) = msp;
-		/* Generate CIMAXLEVELS error if gtmci_nested_level > CALLIN_MAX_LEVEL */
-		if (CALLIN_MAX_LEVEL < TREF(gtmci_nested_level))
-			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(3) ERR_CIMAXLEVELS, 1, TREF(gtmci_nested_level));
-		/* Disallow call-ins within a TP boundary since TP restarts are not supported
-		 * currently across nested call-ins. When we implement TP restarts across call-ins,
-		 * this error needs be changed to a Warning or Notification
-		 */
-		if (dollar_tlevel)
-			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_CITPNESTED);
-		base_frame(NULL);			/* Filled in later */
-		SET_CI_ENV(gtm_levl_ret_code);
-		gtmci_isv_save();
-		(TREF(gtmci_nested_level))++;
-		/* Now that the base-frame for this call-in level has been created, we can create the mv_stent
-		 * to save the previous call-in level's fgncal_stack value and clear the override. When this call-in
-		 * level pops, fgncal_stack will be restored to the value for the previous level. When a given call
-		 * at *this* level finishes, this current value of fgncal_stack is where the stack is unrolled to to
-		 * be ready for the next call.
-		 */
-		SAVE_FGNCAL_STACK;
-		TREF(temp_fgncal_stack) = NULL;		/* Drop override */
-	}
+		ydb_nested_callin();	/* Nested call-in: setup a new CI environment (additional SFT_CI base-frame) */
 	REVERT;
 	assert(NULL == TREF(temp_fgncal_stack));
 	return 0;
+}
+
+/* Nested call-in: setup a new CI environment (additional SFT_CI base-frame) */
+void ydb_nested_callin(void)
+{
+	rhdtyp          	*base_addr;
+	DCL_THREADGBL_ACCESS;
+
+	SETUP_THREADGBL_ACCESS;
+	/* Temporarily mark the beginning of the new stack so that initialization errors in
+	 * call-in frame do not unwind entries of the previous stack (see gtmci_ch). For the
+	 * duration that temp_fgncal_stack has a non-NULL value, it overrides fgncal_stack.
+	 */
+	TREF(temp_fgncal_stack) = msp;
+	/* Generate CIMAXLEVELS error if gtmci_nested_level > CALLIN_MAX_LEVEL */
+	if (CALLIN_MAX_LEVEL < TREF(gtmci_nested_level))
+		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(3) ERR_CIMAXLEVELS, 1, TREF(gtmci_nested_level));
+	base_addr = make_dmode();
+	base_frame(base_addr);			/* More fields filled in by following SET_CI_ENV macro */
+	SET_CI_ENV(gtm_levl_ret_code);
+	gtmci_isv_save();
+	(TREF(gtmci_nested_level))++;
+	/* Now that the base-frame for this call-in level has been created, we can create the mv_stent
+	 * to save the previous call-in level's fgncal_stack value and clear the override. When this call-in
+	 * level pops, fgncal_stack will be restored to the value for the previous level. When a given call
+	 * at *this* level finishes, this current value of fgncal_stack is where the stack is unrolled to to
+	 * be ready for the next call.
+	 */
+	SAVE_FGNCAL_STACK;
+	TREF(temp_fgncal_stack) = NULL;		/* Drop override */
 }
 
 /* Routine exposed to call-in user to exit from active GT.M environment */
@@ -1119,27 +1245,32 @@ int ydb_exit()
 		return 0;		/* GT.M environment not setup yet - quietly return */
 	ESTABLISH_RET(gtmci_ch, mumps_status);
 	assert(NULL != frame_pointer);
-	/* Do not allow ydb_exit() to be invoked from external calls */
-	if (!(SFT_CI & frame_pointer->type) || !(MUMPS_CALLIN & invocation_mode) || (1 < TREF(gtmci_nested_level)))
-		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_INVGTMEXIT);
-	/* Now get rid of the whole M stack - end of GT.M environment */
-	while (NULL != frame_pointer)
-	{
-		while ((NULL != frame_pointer) && !(frame_pointer->type & SFT_CI))
+	/* If process_exiting is set and the YottaDB environment is still active, shortcut some of the checks
+	 * and cleanups we are making in this routine as they are not particularly useful. If the environment
+	 * is not active though, that's still an error.
+	 */
+	if (!process_exiting && gtm_startup_active)
+	{	/* Do not allow ydb_exit() to be invoked from external calls (unless process_exiting) */
+		if (!(SFT_CI & frame_pointer->type) || !(MUMPS_CALLIN & invocation_mode) || (1 < TREF(gtmci_nested_level)))
+			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_INVYDBEXIT);
+		/* Now get rid of the whole M stack - end of GT.M environment */
+		while (NULL != frame_pointer)
 		{
-#			ifdef GTM_TRIGGER
-			if (SFT_TRIGR & frame_pointer->type)
-				gtm_trigger_fini(TRUE, FALSE);
-			else
-#			endif
-				op_unwind();
+			while ((NULL != frame_pointer) && !(frame_pointer->type & SFT_CI))
+			{
+				if (SFT_TRIGR & frame_pointer->type)
+					gtm_trigger_fini(TRUE, FALSE);
+				else
+					op_unwind();
+			}
+			if (NULL != frame_pointer)
+			{	/* unwind the current invocation of call-in environment */
+				assert(frame_pointer->type & SFT_CI);
+				ci_ret_code_quit();
+			}
 		}
-		if (NULL != frame_pointer)
-		{	/* unwind the current invocation of call-in environment */
-			assert(frame_pointer->type & SFT_CI);
-			ci_ret_code_quit();
-		}
-	}
+	} else if (!gtm_startup_active)
+		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_INVYDBEXIT);
 	gtm_exit_handler(); /* rundown all open database resource */
 	/* If libyottadb was loaded via (or on account of) dlopen() and is later unloaded via dlclose()
 	 * the exit handler on AIX and HPUX still tries to call the registered atexit() handler causing

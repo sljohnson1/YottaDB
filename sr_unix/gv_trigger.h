@@ -3,6 +3,9 @@
  * Copyright (c) 2010-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -243,7 +246,7 @@ typedef struct gvtr_invoke_parms_struct
 			assert(!jgbl.forw_phase_recovery);									\
 			LCL_TSTART = TRUE;											\
 			 /* 0 ==> save no locals but RESTART OK */ 								\
-			op_tstart((IMPLICIT_TSTART + IMPLICIT_TRIGGER_TSTART), TRUE, &literal_batch, 0);			\
+			op_tstart((IMPLICIT_TSTART | IMPLICIT_TRIGGER_TSTART), TRUE, &literal_batch, 0);			\
 			/* Ensure that the op_tstart done above has set up the TP frame and that the first entry is		\
 			 * of MVST_TPHOLD type.											\
 			 */													\
@@ -681,7 +684,7 @@ GBLREF	int4		tstart_trigger_depth;
 		t_retry(cdb_sc_triggermod);							\
 	else											\
 	{											\
-		assert(WBTEST_HELPOUT_TRIGDEFBAD == gtm_white_box_test_case_number);		\
+		assert(WBTEST_HELPOUT_TRIGDEFBAD == ydb_white_box_test_case_number);		\
 		/* format "INDEX,SUBSCRIPT" of ^#t(GVN,INDEX,SUBSCRIPT) in the error message */	\
 		SET_PARAM_STRING(util_buff, util_len, INDEX, SUBSCRIPT);			\
 		rts_error_csa(CSA_ARG(CSA) VARLSTCNT(8) ERR_TRIGDEFBAD, 6, trigvn_len, trigvn,	\

@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
@@ -152,7 +152,7 @@ typedef struct cache_rec_struct
 					 * the active or wip queue.
 					 */
 	bool		needs_first_write; 	/* If this block needs to be written to disk for the first time,
-						 *  note it (only applicable for gtm_fullblockwrites) */
+						 *  note it (only applicable for ydb_fullblockwrites) */
 	/* bool		filler4bytealign[1];	 Note: Make sure any changes here are reflected in "cache_state_rec" too */
 } cache_rec;
 
@@ -241,7 +241,7 @@ typedef struct
 					 * the active or wip queue.
 					 */
 	bool		needs_first_write; 	/* If this block needs to be written to disk for the first time,
-						 *  note it (only applicable for gtm_fullblockwrites) */
+						 *  note it (only applicable for ydb_fullblockwrites) */
 	/*bool		filler4bytealign[1];	 Note: Make sure any changes here are reflected in "cache_state_rec" too */
 } cache_state_rec;
 
@@ -573,7 +573,7 @@ MBSTART {											\
 		if (!baseDBreg->open)										\
 			gv_init_reg(baseDBreg, NULL);								\
 		if (!statsDBreg->open)										\
-		{	/* statsDB did not get opened as part of baseDB open above. Possible if gtm_statshare	\
+		{	/* statsDB did not get opened as part of baseDB open above. Possible if ydb_statshare	\
 			 * is not set to 1. But user could still do a ZWR ^%YGS which would try to open		\
 			 * statsDB in caller (who is not equipped to handle errors) so do the open of the	\
 			 * statsDB now and silently handle errors like is done in "gvcst_init".	Any errors	\
@@ -1191,7 +1191,9 @@ MBSTART {									\
 
 #define	RESET_CR_IN_TEND_AFTER_PHASE2_COMMIT(CR, CSA, CSD)									\
 {																\
-	cache_rec_ptr_t		cr_old;												\
+	cache_rec_ptr_t			cr_old;											\
+	DEBUG_ONLY(cache_rec		lcl_cr_curr);										\
+	DEBUG_ONLY(cache_rec		lcl_cr_old);										\
 																\
 	GBLREF	uint4		process_id;											\
 																\
@@ -1204,6 +1206,8 @@ MBSTART {									\
 		 */														\
 		assert(TWINNING_ON(CSD));											\
 		cr_old = (cache_rec_ptr_t)GDS_ANY_REL2ABS(CSA, CR->twin);	/* get old twin */				\
+		DEBUG_ONLY(lcl_cr_old = *cr_old);	/* In case the following assert trips capture the CR contents */	\
+		DEBUG_ONLY(lcl_cr_curr = *CR);											\
 		assert(!cr_old->bt_index);											\
 		assert(!cr_old->in_cw_set || cr_old->dirty);									\
 		assert(CR->bt_index);												\
@@ -1292,7 +1296,7 @@ MBSTART {															\
 		{														\
 			if (jnlpool->jnlpool_ctl->upd_disabled && !is_updproc)							\
 			{	/* Updates are disabled in this journal pool. Issue error. Do NOT detach from journal pool	\
-				 * as that would cause us not to honor instance freeze (in case gtm_custom_errors env var is	\
+				 * as that would cause us not to honor instance freeze (in case ydb_custom_errors env var is	\
 				 * non-null) for database reads that this process later does (for example reading a block	\
 				 * might require us to flush a dirty buffer to disk which should pause if the instance is	\
 				 * frozen).					 						\
@@ -1713,7 +1717,7 @@ MBSTART {														\
 	{														\
 		reservedDBFlags = CSD->reservedDBFlags;	/* sgmnt_data is flag authority */				\
 		/* If this is a base DB (i.e. not a statsdb), but we could not successfully create the statsdb		\
-		 * (e.g. $gtm_statsdir issues etc.) then disable RDBF_STATSDB in the region. So this db continues	\
+		 * (e.g. $ydb_statsdir issues etc.) then disable RDBF_STATSDB in the region. So this db continues	\
 		 * without statistics gathering.									\
 		 */													\
 		if (!IS_RDBF_STATSDB(CSD) && (NULL != CNL) && !CNL->statsdb_fname_len)					\
@@ -1760,6 +1764,7 @@ enum tp_ntp_blkmod_type		/* used for accounting in cs_data->tp_cdb_sc_blkmod[] *
 	tp_blkmod_t_qread,
 	tp_blkmod_tp_tend,
 	tp_blkmod_tp_hist,
+	tp_blkmod_op_tcommit,
 	n_tp_blkmod_types,
 	/* NON-TP transactions */
 	t_blkmod_nomod,
@@ -2170,10 +2175,12 @@ typedef struct sgmnt_data_struct
 	boolean_t	filler_access_counter_halted;	/* Used only in V6.3-000. Kept as a filler just to be safe */
 	boolean_t	lock_crit_with_db;		/* flag controlling LOCK crit mechanism; see interlock.h */
 	uint4		basedb_fname_len;		/* byte length of filename stored in "basedb_fname[]" */
-	unsigned char	basedb_fname[256]; /* full path filaneme of corresponding baseDB if this is a statsDB */
+	unsigned char	basedb_fname[256];	/* full path filaneme of corresponding baseDB if this is a statsDB */
 	boolean_t	read_only;		/* If TRUE, GT.M uses a process-private mmap instead of IPC */
 	char		filler_7k[440];
-	char		filler_8k[1024];
+	/************** YottaDB specific fields *********************/
+	uint4		reorg_sleep_nsec;	/* Time a MUPIP REORG sleeps before starting to process a GDS block */
+	char		filler_8k[1020];
 	/********************************************************/
 	/* Master bitmap immediately follows. Tells whether the local bitmaps have any free blocks or not. */
 } sgmnt_data;
@@ -2705,7 +2712,7 @@ typedef struct	sgmnt_addrs_struct
 							 * Is a copy of reg->statsDB_setup_completed but is present in "csa"
 							 * too to handle was_open regions.
 							 */
-	gd_inst_info	*gd_instinfo;		/* global directory not gtm_repl_instance */
+	gd_inst_info	*gd_instinfo;		/* global directory not ydb_repl_instance */
 	gd_addr		*gd_ptr;		/* global directory for region */
 	struct jnlpool_addrs_struct	*jnlpool;	/* NULL until put, kill, or other function requiring jnlpool */
 } sgmnt_addrs;
@@ -2743,6 +2750,27 @@ typedef struct gd_gblname_struct
 #define	STATSDB_EXTENSION	2050	/* the EXTENSION computed by GDE for every statsdb region */
 #define	STATSDB_MAX_KEY_SIZE	64	/* the MAX_KEY_SIZE computed by GDE for every statsdb region */
 #define	STATSDB_MAX_REC_SIZE	(STATSDB_BLK_SIZE - SIZEOF(blk_hdr)) /* the MAX_REC_SIZE computed by GDE for every statsdb region */
+
+/* The following struct is built into a separate list for each transaction because it is not thrown away if a transaction restarts.
+ * The list keeps growing so we can lock down all the necessary regions in the correct order in case one attempt doesn't get very
+ * far while later attempts get further. Items will be put on the list sorted in unique_id order so that they will always be
+ * grab-crit'd in the same order thus avoiding deadlocks.
+ * The structure and the insert_region function that maintains it are also abused/used by mupip and by view_arg_convert on behalf
+ * of op_view - the secondary adopters use a different anchor from the tp_reg_list GBLREF and a hence different list.
+ */
+
+/* The structure backup_region_list defined in mupipbckup.h needs to have its first four fields
+   identical to the first three fields in this structure */
+typedef struct tp_region_struct
+{
+	struct	tp_region_struct *fPtr;		/* Next in list */
+	gd_region	*reg;			/* Region pointer. Note that it is not necessarily unique since multiple
+						 * regions could point to the same physical file (with all but one of them
+						 * having reg->was_open set to TRUE.and hence have the same tp_region structure.
+						 */
+	gd_id		file_id;
+	int4		fid_index;		/* copy of csa->fid_index for this region */
+} tp_region;
 
 typedef struct
 {
@@ -5353,6 +5381,7 @@ cache_rec_ptr_t db_csh_get(block_id block);
 cache_rec_ptr_t db_csh_getn(block_id block);
 
 enum cdb_sc tp_hist(srch_hist *hist1);
+tp_region	*insert_region(gd_region *reg, tp_region **reg_list, tp_region **reg_free_list, int4 size);
 
 sm_uc_ptr_t get_lmap(block_id blk, unsigned char *bits, sm_int_ptr_t cycle, cache_rec_ptr_ptr_t cr);
 
@@ -5389,6 +5418,10 @@ void act_in_gvt(gv_namehead *gvt);
 
 #define FILE_TYPE_REPLINST	"replication instance"
 #define FILE_TYPE_DB		"database"
+
+#define NO_STATS_OPTIN		0
+#define ALL_STATS_OPTIN		1
+#define SOME_STATS_OPTIN	2
 
 #include "gdsfheadsp.h"
 

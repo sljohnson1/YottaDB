@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -14,6 +17,8 @@
 #define SLEEP_CNT_H_INCLUDED
 
 #include "min_max.h"
+
+GBLREF int	num_additional_processors;	/* needed by a few macros below */
 
 /* Note: GT.M code *MUST*NOT* make use of the sleep() function because use of the sleep() function	(BYPASSOK - sleep())
  * causes problems with GT.M's timers on some platforms. Specifically, the sleep() function
@@ -50,7 +55,11 @@
 #define MAX_WTSTART_FINI_SLEEPS	(4 * SLEEP_ONE_MIN * MAXSLPTIME)/* After this many sleeps (each 1 msec in duration)
 								 * without progress, request cache recovery.
 								 */
-#define	PHASE2_COMMIT_WAIT	SLEEP_ONE_MIN
+/* On the ARMV6L (Raspberry Pi Zero) architecture where there is just one CPU, we have seen the below timeout
+ * of 1 minute (for phase2 commit wait) as not enough in in-house testing. So bump the timeout to 4 times the 1 minute
+ * in the hope that would be enough. Do this for all single-cpu systems.
+ */
+#define	PHASE2_COMMIT_WAIT	(num_additional_processors ? SLEEP_ONE_MIN : (SLEEP_ONE_MIN * 4))
 
 #define	SLEEP_INSTFREEZEWAIT	100		/* 100-msec wait between re-checks of instance freeze status */
 #define	SLEEP_IORETRYWAIT	500		/* 500-msec wait between retries of the same write operation */
@@ -66,16 +75,21 @@
 
 /*  For use by spin locks, SLEEP is ms, total should be under a minute */
 #define LOCK_TRIES_PER_SEC	(4 * 1000)	/* In outer loop: 1 loop in 4 is sleep of 1ms */
-#define LOCK_TRIES		(50 * LOCK_TRIES_PER_SEC)	/* Approximately 50 seconds for non-IO locks */
-#define LOCK_SPINS		1024		/* Inner spin loop base */
-#define LOCK_SPINS_PER_4PROC	256		/* Additional lock spins for every 4 processors past first 8 */
-#define LOCK_SLEEP		1		/* Very short sleep before repoll lock */
-#define LOCK_SPIN_HARD_MASK	0x3		/* Used to cause 4 hard spins */
-#define LOCK_CASLATCH_CHKINTVL	16384		/* Check CASLatch for abandonment/wakeup interval. This interval
-						 * is currently ~4 seconds but checking for 16384 (power of 2) rather
-						 * than (4 * LOCK_TRIES_PER_SEC) allows a faster remainder using AND
-						 * so use that instead.
-						 */
+#define LOCK_TRIES_50sec	(50 * LOCK_TRIES_PER_SEC)	/* Approximately 50 seconds for non-IO locks */
+/* LOCK_TRIES_50sec in single-cpu systems gives a max timeout of 50 seconds. But in single-cpu systems, particularly
+ * on the ARMV6L (Raspberry Pi Zero) architecture, we have seen this timeout as not being enough in in-house testing.
+ * So bump the timeout to 4 times the 50 seconds in the hope that would be enough. Do this for all single-cpu systems.
+ */
+#define	MAX_LOCK_TRIES(X)	(num_additional_processors ? X : (X * 4))
+#define LOCK_SPINS		1024			/* Inner spin loop base */
+#define LOCK_SPINS_PER_4PROC	256			/* Additional lock spins for every 4 processors past first 8 */
+#define LOCK_SLEEP		1			/* Very short sleep before repoll lock */
+#define LOCK_SPIN_HARD_MASK	0x3			/* Used to cause 4 hard spins */
+#define LOCK_CASLATCH_CHKINTVL	16384			/* Check CASLatch for abandonment/wakeup interval. This interval
+							 * is currently ~4 seconds but checking for 16384 (power of 2) rather
+							 * than (4 * LOCK_TRIES_PER_SEC) allows a faster remainder using AND
+							 * so use that instead.
+							 */
 #define	LOCK_CASLATCH_CHKINTVL_USEC	16384 * 128	/* This is used in callers that sleep for 1 micro-sec every 4 iterations
 							 * (instead of the usual 1 millisecond). Here too we want the caslatch
 							 * check to be done every ~4 seconds. One might be tempted to make

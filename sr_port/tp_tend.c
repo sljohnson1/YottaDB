@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -77,7 +77,7 @@
 #endif
 
 #include "gtmrecv.h"
-#include "deferred_signal_handler.h"
+#include "deferred_exit_handler.h"
 #include "repl_instance.h"
 #include "shmpool.h"
 #include "db_snapshot.h"
@@ -279,6 +279,7 @@ boolean_t	tp_tend()
 	jnl_tm_t		save_gbl_jrec_time;
 	uint4			max_upd_num, prev_upd_num, upd_num, upd_num_end, upd_num_start;
 #	endif
+	int4			tprestart_syslog_delta;
 	DCL_THREADGBL_ACCESS;
 
 	SETUP_THREADGBL_ACCESS;
@@ -497,6 +498,7 @@ boolean_t	tp_tend()
 	assert(NULL == tr);
 #	endif
 	assert(cdb_sc_normal == status);
+	tprestart_syslog_delta = TREF(tprestart_syslog_delta);	/* take a local copy to speed up multiple uses below */
 	/* The following section of code (initial part of the for loop) is similar to the function "tp_crit_all_regions".
 	 * The duplication is there only because of performance reasons. The latter function has to go through tp_reg_list
 	 * linked list while here we can go through first_tp_si_by_ftok list which offers a performance advantage.
@@ -538,7 +540,7 @@ boolean_t	tp_tend()
 				|| (gvdupsetnoop && (!JNL_ENABLED(csa) || (NULL != si->jnl_head))));
 			leafmods = indexmods = 0;
 			is_mm = (dba_mm == csd->acc_meth);
-			if (TREF(tprestart_syslog_delta))
+			if (tprestart_syslog_delta)
 				n_blkmods = n_pvtmods = 0;
 			/* If we already hold crit (possible if we are in the final retry), do not invoke grab_crit as it will
 			 * invoke wcs_recover unconditionally if cnl->wc_blocked is set to TRUE. In that case, we want to
@@ -704,7 +706,7 @@ boolean_t	tp_tend()
 					{
 						assert(cnl->wc_blocked);	/* only reason we currently know
 										 * why wcs_get_space could fail */
-						assert(gtm_white_box_test_case_enabled);
+						assert(ydb_white_box_test_case_enabled);
 						SET_TRACEABLE_VAR(cnl->wc_blocked, TRUE);
 						BG_TRACE_PRO_ANY(csa, wc_blocked_tp_tend_wcsgetspace);
 						SET_CACHE_FAIL_STATUS(status, csd);
@@ -835,7 +837,8 @@ boolean_t	tp_tend()
 							|| (cdb_sc_normal != recompute_upd_array(t1, cse)) || !++leafmods)
 						{
 							status = cdb_sc_blkmod;
-							TP_TRACE_HIST(t1->blk_num, t1->blk_target);
+							TP_TRACE_HIST_MOD(t1->blk_num, t1->blk_target, tp_blkmod_tp_tend, csd,
+								t1->tn, 0, t1->level);
 							DEBUG_ONLY(continue;)
 							PRO_ONLY(goto failed;)
 						}
@@ -890,13 +893,15 @@ boolean_t	tp_tend()
 							}
 							if (cdb_sc_normal != status)
 							{
-								if (TREF(tprestart_syslog_delta))
+								if (tprestart_syslog_delta)
 								{
 									n_blkmods++;
 									if (cse)
 										n_pvtmods++;
+									#ifdef DEBUG
 									if (1 != n_blkmods)
 										continue;
+									#endif
 								}
 								assert(CDB_STAGNATE > t_tries);
 								status = cdb_sc_blkmod;
@@ -1877,7 +1882,6 @@ failed:
 	}
 skip_failed:
 	REVERT;
-	DEFERRED_EXIT_HANDLING_CHECK; /* now that all crits are released, check if deferred signal/exit handling needs to be done */
 	if (cdb_sc_normal == status)
 	{
 		if (save_jnlpool != jnlpool)

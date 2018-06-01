@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -18,6 +21,12 @@
 #define	DECR_CNT_FALSE		FALSE
 #define	DECR_CNT_TRUE		TRUE
 #define	DECR_CNT_SAFE		2
+
+/* Below macros are used to pass values for the "immediate" parameter in ftok_sem* functions.
+ * Using IMMEDIATE_FALSE instead of FALSE in the caller code makes it more readable.
+ */
+#define	IMMEDIATE_FALSE		FALSE
+#define	IMMEDIATE_TRUE		TRUE
 
 boolean_t ftok_sem_get2(gd_region *reg, boolean_t *stacktrace_time, boolean_t *timedout, semwait_status_t *retstat,
 			boolean_t *bypass, boolean_t *ftok_counter_halted, boolean_t incr_cnt);

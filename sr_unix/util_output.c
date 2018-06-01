@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -40,11 +43,11 @@
 #include "gtmsource.h"
 #include "gtmrecv.h"
 #include "repl_instance.h"
-#include "trans_log_name.h"
+#include "ydb_trans_log_name.h"
 #include "gtmio.h"
-#include "gtm_logicals.h"
 #include "have_crit.h"
 #include "gtm_multi_proc.h"
+#include "get_syslog_flags.h"
 
 #ifdef UNICODE_SUPPORTED
 #include "gtm_icu_api.h"
@@ -90,19 +93,19 @@ error_def(ERR_TEXT);
 }
 
 /* #GTM_THREAD_SAFE : The below macro (INSERT_MARKER) is thread-safe because caller ensures serialization with locks */
-#define INSERT_MARKER									\
-{											\
-	assert(IS_PTHREAD_LOCKED_AND_HOLDER);						\
-	STRNCPY_STR(offset, "-", STRLEN("-"));						\
-	offset += STRLEN("-");								\
+#define INSERT_MARKER						\
+{								\
+	assert(IS_PTHREAD_LOCKED_AND_HOLDER);			\
+	STRNCPY_LIT(offset, "-");				\
+	offset += STRLEN("-");					\
 }
 
 /* #GTM_THREAD_SAFE : The below macro (BUILD_FACILITY) is thread-safe because caller ensures serialization with locks */
-#define BUILD_FACILITY(strptr)								\
-{											\
-	assert(IS_PTHREAD_LOCKED_AND_HOLDER);						\
-	STRNCPY_STR(offset, strptr, STRLEN(strptr));					\
-	offset += STRLEN(strptr);							\
+#define BUILD_FACILITY(strptr)					\
+{								\
+	assert(IS_PTHREAD_LOCKED_AND_HOLDER);			\
+	memcpy(offset, strptr, STRLEN(strptr));			\
+	offset += STRLEN(strptr);				\
 }
 
 /*
@@ -660,7 +663,7 @@ void	util_out_send_oper(char *addr, unsigned int len)
 		first_syslog = FALSE;
 
 		offset = facility;
-		BUILD_FACILITY("GTM");
+		BUILD_FACILITY("YDB");
 		INSERT_MARKER;
 		switch (image_type)
 		{
@@ -737,7 +740,7 @@ void	util_out_send_oper(char *addr, unsigned int len)
 			}
 		}
 		DEFER_INTERRUPTS(INTRPT_IN_LOG_FUNCTION, prev_intrpt_state);
-		(void)OPENLOG(facility, LOG_PID | LOG_CONS | LOG_NOWAIT, LOG_USER);
+		(void)OPENLOG(facility, get_syslog_flags(), LOG_USER);
 		ENABLE_INTERRUPTS(INTRPT_IN_LOG_FUNCTION, prev_intrpt_state);
 	}
 	/* When syslog is processing and a signal occurs, the signal processing might eventually lead to another syslog

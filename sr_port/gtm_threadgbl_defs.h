@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2010-2017 Fidelity National Information	*
+ * Copyright (c) 2010-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
@@ -38,6 +38,8 @@
 THREADGBLDEF(grabbing_crit, 			gd_region *)			/* Region currently grabbing crit in (if any) */
 
 /* Compiler */
+THREADGBLDEF(blkmod_fail_level,		int4)				/* TP trace reporting element */
+THREADGBLDEF(blkmod_fail_type,			int4)				/* TP trace reporting element */
 THREADGBLDEF(block_level,			int4)				/* used to check embedded subroutine levels */
 THREADGBLDEF(boolchain,				triple)				/* anchor for chain used by bx_boolop  */
 THREADGBLDEF(boolchain_ptr,			triple *)			/* pointer to anchor for chain used by bx_boolop  */
@@ -57,8 +59,8 @@ THREADGBLDEF(expr_start_orig,			triple *)			/* anchor used to test if there's an
 										 * expr_start */
 THREADGBLDEF(defined_symbols,			struct sym_table *)		/* Anchor for symbol chain */
 THREADGBLDEF(for_stack_ptr,			oprtype **)			/* part of FOR compilation nesting mechanism */
-THREADGBLDEF(gtm_fullbool,			unsigned int)			/* controls boolean side-effect behavior defaults
-										 * to 0 (GTM_BOOL) */
+THREADGBLDEF(ydb_fullbool,			unsigned int)			/* controls boolean side-effect behavior defaults
+										 * to 0 (YDB_BOOL) */
 THREADGBLDEF(ind_result,			mval *)				/* pointer to indirection return location */
 THREADGBLDEF(ind_source,			mval *)				/* pointer to indirection source location */
 THREADGBLDEF(indirection_mval,			mval)				/* used for parsing subscripted indirection */
@@ -136,7 +138,7 @@ THREADGBLDEF(gd_targ_map,			gd_binding *)			/* map entry to which "gv_bind_subsn
 										 * functions to avoid recomputing the map (using
 										 * gv_srch_map) based on gd_header/gv_currkey.
 										 */
-THREADGBLDEF(gtm_custom_errors,			mstr)
+THREADGBLDEF(ydb_custom_errors,			mstr)
 THREADGBLDEF(gv_extname_size,			int4)				/* part op_gvextname working memory mechanism */
 THREADGBLDEF(gv_last_subsc_null,		boolean_t)			/* indicates whether the last subscript of
 										 * gv_currkey (aka $reference) is a NULL string */
@@ -183,6 +185,11 @@ THREADGBLDEF(tp_restart_entryref,		mval)				/* tp_restart position for reporting
 THREADGBLDEF(tp_restart_failhist_indx,		int4)				/* tp_restart dbg restart history index */
 THREADGBLDEF(tprestart_syslog_delta,		int4)				/* defines every n-th restart to be logged for tp */
 THREADGBLDEF(tprestart_syslog_first,		int4)				/* # of TP restarts logged unconditionally */
+THREADGBLAR1DEF(t_fail_hist_blk,		block_id,	(CDB_MAX_TRIES))/* array for TP tracing */
+THREADGBLAR1DEF(tp_fail_bttn,			trans_num,	(CDB_MAX_TRIES))/* array for TP tracing */
+THREADGBLAR1DEF(tp_fail_histtn,		trans_num,	(CDB_MAX_TRIES))/* array for TP tracing */
+THREADGBLAR1DEF(tp_fail_hist,			gv_namehead *,	(CDB_MAX_TRIES))/* array for TP tracing */
+THREADGBLAR1DEF(tp_fail_hist_reg,		gd_region *,	(CDB_MAX_TRIES))/* array for TP tracing */
 THREADGBLDEF(transform,				boolean_t)			/* flag collation transform eligible */
 THREADGBLDEF(wcs_recover_done,			boolean_t)			/* TRUE if wcs_recover was ever invoked in this
 										 * process. */
@@ -237,19 +244,19 @@ THREADGBLDEF(fnzsearch_globbuf_ptr,		glob_t *)			/* op_fnzsearch temp for pointi
 THREADGBLDEF(glvn_pool_ptr,			glvn_pool *)			/* Pointer to the glvn pool */
 THREADGBLDEF(gtmci_retval,			mval *)				/* Pointer to return value from call-in */
 #ifdef GTMDBGFLAGS_ENABLED
-THREADGBLDEF(gtmdbgflags,			int)
-THREADGBLDEF(gtmdbgflags_freq,			int)
-THREADGBLDEF(gtmdbgflags_freq_cntr,		int)
+THREADGBLDEF(ydb_dbgflags,			int)
+THREADGBLDEF(ydb_dbgflags_freq,			int)
+THREADGBLDEF(ydb_dbgflags_freq_cntr,		int)
 #endif
 THREADGBLDEF(gtm_env_init_started,		boolean_t)			/* gtm_env_init flag envvar processing */
 THREADGBLFPTR(gtm_env_xlate_entry,		int,		())		/* gtm_env_xlate() function pointer */
-THREADGBLDEF(gtm_environment_init,		boolean_t)			/* indicates GT.M development environment rather
+THREADGBLDEF(ydb_environment_init,		boolean_t)			/* indicates a development environment rather
 										 * than a production environment */
 THREADGBLFPTR(gtm_sigusr1_handler,		void, 		(void))		/* SIGUSR1 signal handler function ptr */
-THREADGBLDEF(gtm_linktmpdir,			mstr)				/* Directory to use for relinkctl files */
+THREADGBLDEF(ydb_linktmpdir,			mstr)				/* Directory to use for relinkctl files */
 THREADGBLDEF(gtm_strpllim,			int4)				/* if non-zero, sets limit on stringpool */
 THREADGBLDEF(gtm_strpllimwarned,		boolean_t)			/* already hit limit on stringpool  */
-THREADGBLDEF(gtm_trigger_etrap,			mval)				/* $etrap - for use in triggers */
+THREADGBLDEF(ydb_trigger_etrap,			mval)				/* $etrap - for use in triggers */
 THREADGBLDEF(gtm_trctbl_cur,			trctbl_entry *)			/* Current gtm trace table entry */
 THREADGBLDEF(gtm_trctbl_end,			trctbl_entry *)			/* End of gtm trace table (last entry + 1) */
 THREADGBLDEF(gtm_trctbl_groups,			unsigned int)			/* Trace group mask (max 31 groups) */
@@ -273,6 +280,7 @@ THREADGBLDEF(lab_proxy,				lab_tabent_proxy)		/* Placeholder storing lab_ln_ptr 
 										 * pointer and has_parms value, so they are
 										 * contiguous in memory */
 #endif
+THREADGBLDEF(libyottadb_active_rtn,		libyottadb_routines)		/* Which routine is currently active */
 THREADGBLDEF(mprof_alloc_reclaim,		boolean_t)			/* Flag indicating whether the temporarily allocated
 										 * memory should be reclaimed */
 THREADGBLDEF(mprof_chunk_avail_size,		int)				/* Number of mprof stack frames that can fit in
@@ -296,11 +304,14 @@ THREADGBLDEF(open_relinkctl_list,		open_relinkctl_sgm *)		/* Anchor for open rel
 THREADGBLDEF(relinkctl_shm_min_index,		int)				/* Minimum size of rtnobj shared memory segment
 										 * is 2**relinkctl_shm_min_index
 										 */
-THREADGBLDEF(gtm_autorelink_keeprtn,		boolean_t)			/* do not let go of objects in rtnobj shm */
+THREADGBLDEF(ydb_autorelink_keeprtn,		boolean_t)			/* do not let go of objects in rtnobj shm */
 #endif
 THREADGBLDEF(open_shlib_root,			open_shlib *)			/* Anchor for open shared library list */
 THREADGBLDEF(parm_pool_ptr,			parm_pool *)			/* Pointer to the parameter pool */
 THREADGBLDEF(parms_cnt,                         unsigned int)                   /* Parameters count */
+THREADGBLDEF(sapi_query_node_subs,		mstr *)				/* -> Array of YDB_MAX_SUBS mstrs holding subs
+										 * .. to return to ydb_node_*_s(). */
+THREADGBLDEF(sapi_query_node_subs_cnt,		int)				/* Count of subs filled in */
 THREADGBLDEF(statsdb_fnerr_reason,		int)				/* Failure code for "gvcst_set_statsdb_fname" */
 THREADGBLAR1DEF(zpeek_regname,			char,		NAME_ENTRY_SZ)	/* Last $ZPEEK() region specified */
 THREADGBLDEF(zpeek_regname_len,			int)				/* Length of zpeekop_regname */
@@ -313,14 +324,20 @@ THREADGBLDEF(relink_allowed,			int)				/* Non-zero if recursive relink permitted
 THREADGBLDEF(save_zhist,			zro_hist *)			/* Temp storage for zro_hist blk so condition hndler
 										 * can get a hold of it if necessary to free it */
 #endif
+THREADGBLAR1DEF(sapi_mstrs_for_gc_ary,		mstr *, MAX_SAPI_MSTR_GC_INDX + 1)	/* SimpleAPI mstr array needed by GC */
+THREADGBLDEF(sapi_mstrs_for_gc_indx,		int)				/* Index into gc mstr array of next avail slot */
 THREADGBLDEF(set_zroutines_cycle,		uint4)				/* Informs us if we changed $ZROUTINES between
 										 * linking a routine and invoking it
 										 */
 THREADGBLDEF(statsDB_init_defer_anchor,		statsDB_deferred_init_que_elem *) /* Anchor point for deferred init of statsDBs */
-THREADGBLDEF(statshare_opted_in,		boolean_t)			/* Flag when true shared stats collection active */
+THREADGBLDEF(statshare_opted_in,		uint4)				/* Flag controlling stats collection */
 THREADGBLDEF(trans_code_pop,			mval *)				/* trans_code holder for $ZTRAP popping */
 THREADGBLDEF(view_ydirt_str,			char *)				/* op_view working storage for ydir* ops */
 THREADGBLDEF(view_ydirt_str_len,		int4)				/* Part of op_view working storage for ydir* ops */
+THREADGBLDEF(view_region_list,			tp_region *)			/* used by view_arg_convert and op_view/view_dbop */
+THREADGBLDEF(view_region_free_list,		tp_region *)			/* used by view_arg_convert and op_view/view_dbop */
+THREADGBLDEF(ydb_error_code,			int)				/* Error reflected back to condition handler - it
+										 * is saved here so the ESTABLISHer has access */
 THREADGBLDEF(zdate_form,			int4)				/* Control for default $zdate() format */
 THREADGBLAR1DEF(zintcmd_active,			zintcmd_active_info,	ZINTCMD_LAST)	/* Interrupted timed commands */
 THREADGBLDEF(zro_root,				zro_ent *)			/* Anchor for zroutines structure entry array */
@@ -329,14 +346,14 @@ THREADGBLDEF(ztrap_form,			int4)				/* ztrap type indicator */
 THREADGBLDEF(poll_fds_buffer,			char *)				/* Buffer for poll() argument */
 THREADGBLDEF(poll_fds_buffer_size,		size_t)				/* Current allocated size of poll_fds_buffer */
 THREADGBLDEF(socket_handle_counter,		int)				/* Counter for generated socket handles */
-
+THREADGBLDEF(mu_set_file_noencryptable,		boolean_t)			/* Disabling encryption relaxes encr errors */
 /* Larger structures and char strings */
 THREADGBLAR1DEF(director_string,		char,	SIZEOF(mident_fixed)*2)	/* Buffer for director_ident */
 THREADGBLDEF(fnpca,				fnpc_area)			/* $Piece cache structure area */
 THREADGBLAR1DEF(for_stack,			oprtype *,	MAX_FOR_STACK)	/* Stacks FOR scope complete (compilation) addrs */
 THREADGBLAR1DEF(for_temps,			boolean_t,	MAX_FOR_STACK)	/* Stacked flags of FOR control value temps */
-THREADGBLDEF(gtm_utfcgr_strings,		int)				/* Strings we can keep UTF8 parsing cache for */
-THREADGBLDEF(gtm_utfcgr_string_groups,		int)				/* Groups of chars we can keep for each string */
+THREADGBLDEF(ydb_utfcgr_strings,		int)				/* Strings we can keep UTF8 parsing cache for */
+THREADGBLDEF(ydb_utfcgr_string_groups,		int)				/* Groups of chars we can keep for each string */
 THREADGBLAR1DEF(last_fnquery_return_sub,	mval,		MAX_LVSUBSCRIPTS)/* Returned subscripts of last $QUERY() */
 THREADGBLDEF(lcl_coll_xform_buff,		char *)				/* This buffer is for local collation
 										 * transformations, which must not nest - i.e.
@@ -436,7 +453,7 @@ THREADGBLDEF(expand_prev_key,			int)		/* Can hold one of 3 values.
 								 * FALSE implies we are not inside a $zprevious call. None of the
 								 *	above two optimizations kick in.
 								 */
-THREADGBLDEF(gtm_autorelink_ctlmax,		uint4)		/* Maximum number of routines allowed for auterelink */
+THREADGBLDEF(ydb_autorelink_ctlmax,		uint4)		/* Maximum number of routines allowed for autorelink */
 /* Each process that opens a database file with O_DIRECT (which happens if asyncio=TRUE) needs to do
  * writes from a buffer that is aligned at the filesystem-blocksize level. We ensure this in database shared
  * memory global buffers where each buffer is guaranteed aligned at OS_PAGE_SIZE as private memory buffers that are
@@ -476,7 +493,7 @@ THREADGBLDEF(in_ext_call,			boolean_t)	/* Indicates we are in an external call *
 
 /* linux AIO related data */
 #ifdef 	USE_LIBAIO
-THREADGBLDEF(gtm_aio_nr_events,			uint4)		/* Indicates the value of the nr_events parameter suggested for
+THREADGBLDEF(ydb_aio_nr_events,			uint4)		/* Indicates the value of the nr_events parameter suggested for
 								 * use by io_setup().
 								 */
 #endif
@@ -496,6 +513,7 @@ THREADGBLAR1DEF(ydbmsgprefixbuf,		char,	32)	/* The message prefix buffer size is
 								 * 8 4-byte unicode characters or 32 ascii characters.
 								 */
 THREADGBLDEF(ydbmsgprefix,			mstr)		/* mstr pointing to msgprefixbuf containing the YDB prompt */
+THREADGBLDEF(trig_forced_unwind,		boolean_t)	/* set/used by "gtm_trigger_fini", "op_unwind" and "unw_mv_ent" */
 
 /* Debug values */
 #ifdef DEBUG
@@ -506,13 +524,13 @@ THREADGBLDEF(ZLengthReentCnt,			boolean_t)	/* Reentrancy count for ZGetPieceCoun
 THREADGBLDEF(donot_commit,			boolean_t)			/* debug-only - see gdsfhead.h for purpose */
 THREADGBLDEF(continue_proc_cnt,			int)				/* Used by whitebox secshr test to count time
 										 * process was continued. */
-THREADGBLDEF(gtm_test_fake_enospc,		boolean_t)			/*  DEBUG-only option to enable/disable anticipatory
+THREADGBLDEF(ydb_test_fake_enospc,		boolean_t)			/*  DEBUG-only option to enable/disable anticipatory
 										 *  freeze fake ENOSPC testing
 										 */
-THREADGBLDEF(gtm_test_jnlpool_sync,		uint4)				/*  DEBUG-only option to force the journal pool
+THREADGBLDEF(ydb_test_jnlpool_sync,		uint4)				/*  DEBUG-only option to force the journal pool
 										 *  accounting out of sync every n transactions.
 										 */
-THREADGBLDEF(gtm_usesecshr,			boolean_t)			/* Bypass easy methods of dealing with IPCs, files,
+THREADGBLDEF(ydb_usesecshr,			boolean_t)			/* Bypass easy methods of dealing with IPCs, files,
 										 * wakeups, etc and always use gtmsecshr (testing).
 										 */
 THREADGBLDEF(rts_error_unusable,		boolean_t)			/* Denotes the window in which an rts_error is
@@ -521,8 +539,8 @@ THREADGBLDEF(rts_error_unusable_seen,		boolean_t)
 THREADGBLAR1DEF(trans_restart_hist_array,	trans_restart_hist_t, TRANS_RESTART_HIST_ARRAY_SZ) /* See tp.h for usage */
 THREADGBLDEF(trans_restart_hist_index,		uint4)
 THREADGBLDEF(skip_mv_num_approx_assert,		boolean_t)		/* TRUE if mval2subsc is invoked from op_fnview */
-THREADGBLDEF(gtm_gvundef_fatal,			boolean_t)			/* core and die intended for testing */
-THREADGBLDEF(gtm_dirtree_collhdr_always,	boolean_t)	/* Initialize 4-byte collation header in directory tree always.
+THREADGBLDEF(ydb_gvundef_fatal,			boolean_t)			/* core and die intended for testing */
+THREADGBLDEF(ydb_dirtree_collhdr_always,	boolean_t)	/* Initialize 4-byte collation header in directory tree always.
 								 * Used by tests that are sensitive to DT leaf block layout.
 								 */
 THREADGBLDEF(activelv_cycle,			int)			/* # of times SET_ACTIVE_LV macro has been invoked */
@@ -537,7 +555,7 @@ THREADGBLDEF(gtmio_skip_tlevel_assert,		boolean_t)	/* Allow for "util_out_print_
 								 */
 THREADGBLDEF(in_trigger_upgrade,		boolean_t)	/* caller is MUPIP TRIGGER -UPGRADE */
 #endif	/* #ifdef GTM_TRIGGER */
-THREADGBLDEF(gtm_test_autorelink_always,	boolean_t)	/*  DEBUG-only option to enable/disable autorelink always */
+THREADGBLDEF(ydb_test_autorelink_always,	boolean_t)	/*  DEBUG-only option to enable/disable autorelink always */
 THREADGBLDEF(fork_without_child_wait,		boolean_t)	/*  we did a FORK but did not wait for child to detach from
 								 *  inherited shm so shm_nattch could be higher than we expect.
 								 */

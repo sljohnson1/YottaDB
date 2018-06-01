@@ -3,6 +3,9 @@
  * Copyright (c) 2014-2015 Fidelity National Information 	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -43,7 +46,7 @@ GBLREF spdesc		stringpool;
 GBLREF io_pair		io_curr_device;
 GBLREF io_log_name	*io_root_log_name;
 GBLREF d_socket_struct	*socket_pool;
-GBLREF io_pair		*io_std_device;
+GBLREF io_pair		io_std_device;
 GBLREF io_log_name	*dollar_principal;
 GBLREF mstr		dollar_prin_log;
 GBLREF mstr		dollar_zpin;			/* contains "< /" */
@@ -186,7 +189,7 @@ void	op_fnzsocket(UNIX_ONLY_COMMA(int numarg) mval *dst, ...)
 		iod = io_curr_device.in;
 	else
 	{
-		if ((io_std_device->in != io_std_device->out))
+		if ((io_std_device.in != io_std_device.out))
 		{
 			tlp = dollar_principal ? dollar_principal : io_root_log_name->iod->trans_name;
 			nlen = tlp->len;
@@ -213,7 +216,7 @@ void	op_fnzsocket(UNIX_ONLY_COMMA(int numarg) mval *dst, ...)
 			nl = get_log_name(&dollar_prin_log, NO_INSERT);
 		if (NULL == nl)
 		{
-			stat = TRANS_LOG_NAME(&devicename->str, &tn, buf1, SIZEOF(buf1), dont_sendmsg_on_log2long);
+			stat = trans_log_name(&devicename->str, &tn, buf1, SIZEOF(buf1), dont_sendmsg_on_log2long);
 			if (SS_NORMAL != stat)
 				rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_IONOTOPEN);
 			else
@@ -228,8 +231,8 @@ void	op_fnzsocket(UNIX_ONLY_COMMA(int numarg) mval *dst, ...)
 		iod = nl->iod;
 	}
 	/* if iod is standard in device and it is a split device and it is $ZPOUT set iod to output device */
-	if ((2 == nldone) && (io_std_device->in == iod))
-		iod = io_std_device->out;
+	if ((2 == nldone) && (io_std_device.in == iod))
+		iod = io_std_device.out;
 	if (gtmsocket != iod->type)
 	{
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_ZSOCKETNOTSOCK);
@@ -526,13 +529,13 @@ void	op_fnzsocket(UNIX_ONLY_COMMA(int numarg) mval *dst, ...)
 				memcpy(charptr, ONE_COMMA, len);
 				charptr += len;
 				len = SIZEOF(TLSCLIENTSTR) - 1;
-				STRNCPY_STR(charptr, (GTMTLS_OP_CLIENT_MODE & tls_sock->flags) ? TLSCLIENTSTR : TLSSERVERSTR, len);
+				memcpy(charptr, (GTMTLS_OP_CLIENT_MODE & tls_sock->flags) ? TLSCLIENTSTR : TLSSERVERSTR, len);
 				charptr += len;
 				len = STRLEN(tls_sock->tlsid);
 				if (0 < len)
 				{
 					*charptr++ = ',';
-					STRNCPY_STR(charptr, tls_sock->tlsid, len);
+					memcpy(charptr, tls_sock->tlsid, len);
 					charptr += len;
 				}
 				if (0 < len2)
@@ -542,12 +545,12 @@ void	op_fnzsocket(UNIX_ONLY_COMMA(int numarg) mval *dst, ...)
 						STRCPY(charptr, "|P:");
 						charptr += OPTIONPREFIXLEN;
 						len2 = STRLEN(conn_info.protocol);
-						STRNCPY_STR(charptr, conn_info.protocol, len2);
+						memcpy(charptr, conn_info.protocol, len2);
 						charptr += len2;
 						STRCPY(charptr, "|C:");
 						charptr += OPTIONPREFIXLEN;
 						len2 = STRLEN(conn_info.session_algo);
-						STRNCPY_STR(charptr, conn_info.session_algo, len2);
+						memcpy(charptr, conn_info.session_algo, len2);
 						charptr += len2;
 					}
 					if (TLS_OPTIONS_OPTIONS & tls_options_mask)
@@ -577,7 +580,7 @@ void	op_fnzsocket(UNIX_ONLY_COMMA(int numarg) mval *dst, ...)
 							*charptr++ = ',';
 							STRCPY(charptr, "SESSID:");
 							charptr += 7;
-							STRNCPY_STR(charptr, conn_info.session_id, len2);
+							memcpy(charptr, conn_info.session_id, len2);
 							charptr += len2;
 						}
 						if (-1 != conn_info.session_expiry_timeout)

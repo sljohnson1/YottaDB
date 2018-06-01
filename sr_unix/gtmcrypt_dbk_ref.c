@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2009-2017 Fidelity National Information	*
+ * Copyright (c) 2009-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
@@ -35,18 +35,19 @@
 #include "gtmcrypt_dbk_ref.h"
 #include "gtmcrypt_sym_ref.h"
 #include "gtmcrypt_pk_ref.h"
+#include "ydb_getenv.h"
 
-#define	UNRES_KEY_FILE				0	/* Key is for device encryption. */
-#define	UNRES_KEY_UNRES_DB			1	/* Key is for a database that does not yet exist. */
-#define	UNRES_KEY_RES_DB			2	/* Key is for a database that already exists. */
+#define	UNRES_KEY_FILE		0	/* Key is for device encryption. */
+#define	UNRES_KEY_UNRES_DB	1	/* Key is for a database that does not yet exist. */
+#define	UNRES_KEY_RES_DB	2	/* Key is for a database that already exists. */
 
-#define	SEARCH_BY_KEYNAME			0	/* Searching for an unresolved key by name. */
-#define	SEARCH_BY_KEYPATH			1	/* Searching for an unresolved key by path. */
-#define	SEARCH_BY_HASH				2	/* Searching for an unresolved key by hash. */
+#define	SEARCH_BY_KEYNAME	0	/* Searching for an unresolved key by name. */
+#define	SEARCH_BY_KEYPATH	1	/* Searching for an unresolved key by path. */
+#define	SEARCH_BY_HASH		2	/* Searching for an unresolved key by hash. */
 
-#define CONFIG_FILE_UNREAD			('\0' == gc_config_filename[0])
-#define GPG_MESSAGE				"Verify encrypted key file and your GNUPGHOME settings"
-#define NON_GPG_MESSAGE				"Verify encryption key in configuration file pointed to by $gtmcrypt_config"
+#define CONFIG_FILE_UNREAD	('\0' == gc_config_filename[0])
+#define GPG_MESSAGE		"Verify encrypted key file and your GNUPGHOME settings"
+#define NON_GPG_MESSAGE		"Verify encryption key in configuration file pointed to by $ydb_crypt_config/$gtmcrypt_config"
 
 /* On certain platforms the st_mtime field of the stat structure got replaced by a timespec st_mtim field, which in turn has tv_sec
  * and tv_nsec fields. For compatibility reasons, those platforms define an st_mtime macro which points to st_mtim.tv_sec. Whenever
@@ -181,8 +182,8 @@ int gtmcrypt_getkey_by_keyname(char *key_name, char *key_path, gtm_keystore_t **
  */
 int gtmcrypt_getkey_by_hash(unsigned char *hash, char *db_path, gtm_keystore_t **entry)
 {
-	int	err_caused_by_gpg, error;
-	char	save_err[MAX_GTMCRYPT_ERR_STRLEN], hex_buff[GTMCRYPT_HASH_HEX_LEN + 1];
+	int	err_caused_by_gpg, error, errorlen;
+	char	save_err[MAX_GTMCRYPT_ERR_STRLEN + 1], hex_buff[GTMCRYPT_HASH_HEX_LEN + 1];
 	char	*alert_msg;
 
 	if (NULL != db_path)
@@ -204,7 +205,11 @@ int gtmcrypt_getkey_by_hash(unsigned char *hash, char *db_path, gtm_keystore_t *
 				GC_HEX(hash, hex_buff, GTMCRYPT_HASH_HEX_LEN);
 				if (err_caused_by_gpg)
 				{
-					strncpy(save_err, gtmcrypt_err_string, MAX_GTMCRYPT_ERR_STRLEN);
+					errorlen = STRLEN(gtmcrypt_err_string);
+					if (MAX_GTMCRYPT_ERR_STRLEN < errorlen)
+						errorlen = MAX_GTMCRYPT_ERR_STRLEN;
+					memcpy(save_err, gtmcrypt_err_string, errorlen);
+					save_err[errorlen] = '\0';
 					UPDATE_ERROR_STRING("Expected hash - " STR_ARG " - %s. %s",
 						ELLIPSIZE(hex_buff), save_err, alert_msg);
 				} else
@@ -320,7 +325,7 @@ STATICFNDEF gtm_keystore_t *keystore_lookup_by_keyname_plus(char *keyname, char 
 	ynew_ext = keyname + keynamelen - STRLEN(EXT_NEW);
 	if ((ynew_ext >= keyname) && (0 == strcmp(ynew_ext, EXT_NEW)))
 	{	/* This is an autodb, fixup the path */
-		strncpy(lcl_keyname, keyname, keynamelen - STRLEN(EXT_NEW));
+		memcpy(lcl_keyname, keyname, keynamelen - STRLEN(EXT_NEW));
 		lcl_keyname[keynamelen - STRLEN(EXT_NEW)] = '\0';
 		keyname = lcl_keyname;
 	}
@@ -395,7 +400,7 @@ STATICFNDEF gtm_keystore_t *keystore_lookup_by_unres_key(char *search_field1, in
 				 * is a fully resolved path.
 				 */
 				isautodb = TRUE;
-				strncpy(name_search_field_buff, search_field1, search_field_len - STRLEN(EXT_NEW));
+				memcpy(name_search_field_buff, search_field1, search_field_len - STRLEN(EXT_NEW));
 				name_search_field_buff[search_field_len - STRLEN(EXT_NEW)] = '\0';
 				name_search_field_ptr = name_search_field_buff;
 			}
@@ -540,13 +545,22 @@ STATICFNDEF gtm_keystore_t *gtmcrypt_decrypt_key(char *key_path, int path_length
 	gtm_keystore_t		*node;
 	unsigned char		raw_key[SYMMETRIC_KEY_MAX];
 	int			raw_key_length;
+	int			gpgerr, gpg_attempt;
 
 	/* If we have seen a key with the same path, do not re-read it. */
 	if (NULL == (node = keystore_lookup_by_keypath(key_path)))
 	{	/* Now that we have the name of the symmetric key file, try to decrypt it. If gc_pk_get_decrypted_key returns a
 		 * non-zero status, it should have already populated the error string.
 		 */
-		if (0 != gc_pk_get_decrypted_key(key_path, raw_key, &raw_key_length))
+		gpg_attempt = 2;				/* Retry the libgpgme decryption request once */
+		do {
+			gpgerr = gc_pk_get_decrypted_key(key_path, raw_key, &raw_key_length);
+			if (GPG_ERR_DECRYPT_FAILED == gpgerr)	/* Cipher is not valid, which cannot be the case. */
+				gpg_attempt--;			/* Assume it's a gpg bug and retry */
+			else
+				gpg_attempt = 0;
+		} while (gpg_attempt);
+		if (0 != gpgerr)
 			return NULL;
 		if (0 == raw_key_length)
 		{
@@ -588,26 +602,44 @@ STATICFNDEF gtm_keystore_t *gtmcrypt_decrypt_key(char *key_path, int path_length
  */
 STATICFNDEF int keystore_refresh(void)
 {
-	int		n_mappings, status, just_read;
+	int		n_mappings, status, just_read, envvar_len;
 	char		*config_env;
 	struct stat	stat_info;
+	boolean_t	is_ydb_env_match;
 	static long	last_modified_s, last_modified_ns;
 
 	just_read = FALSE;
-	/* Check and update the value of gtm_passwd if it has changed since we last checked. This way, if the user had originally
-	 * entered a wrong password, but later changed the value (possible in MUMPS using external call), we read the up-to-date
-	 * value instead of issuing an error.
+	/* Check and update the value of ydb_passwd/gtm_passwd if it has changed since we last checked. This way, if the user
+	 * had originally entered a wrong password, but later changed the value (possible in MUMPS using external call), we
+	 * read the up-to-date value instead of issuing an error.
 	 */
-	if (0 != gc_update_passwd(GTM_PASSWD_ENV, &gtmcrypt_pwent, GTMCRYPT_DEFAULT_PASSWD_PROMPT,
+	if (0 != gc_update_passwd(YDBENVINDX_PASSWD, NULL_SUFFIX, &gtmcrypt_pwent, GTMCRYPT_DEFAULT_PASSWD_PROMPT,
 					GTMCRYPT_OP_INTERACTIVE_MODE & gtmcrypt_init_flags))
 		return -1;
 	if (CONFIG_FILE_UNREAD)
 	{	/* First, make sure we have a proper environment varible and a regular configuration file. */
-		if (NULL != (config_env = getenv("gtmcrypt_config")))
+		if (NULL != (config_env = ydb_getenv(YDBENVINDX_CRYPT_CONFIG, NULL_SUFFIX, &is_ydb_env_match)))
 		{
-			if (0 == strlen(config_env))
+			if (0 == (envvar_len = strlen(config_env))) /* inline assignment */
 			{
-				UPDATE_ERROR_STRING(ENV_EMPTY_ERROR, "gtmcrypt_config");
+				if (is_ydb_env_match)
+				{
+					UPDATE_ERROR_STRING(ENV_EMPTY_ERROR, ydbenvname[YDBENVINDX_CRYPT_CONFIG] + 1);
+				} else
+				{
+					UPDATE_ERROR_STRING(ENV_EMPTY_ERROR, gtmenvname[YDBENVINDX_CRYPT_CONFIG] + 1);
+				}
+				return -1;
+			}
+			if (GTM_PATH_MAX <= envvar_len)
+			{
+				if (is_ydb_env_match)
+				{
+					UPDATE_ERROR_STRING(ENV_TOOLONG_ERROR, ydbenvname[YDBENVINDX_CRYPT_CONFIG] + 1, status);
+				} else
+				{
+					UPDATE_ERROR_STRING(ENV_TOOLONG_ERROR, gtmenvname[YDBENVINDX_CRYPT_CONFIG] + 1, status);
+				}
 				return -1;
 			}
 			if (0 != stat(config_env, &stat_info))
@@ -623,11 +655,11 @@ STATICFNDEF int keystore_refresh(void)
 			}
 		} else
 		{
-			UPDATE_ERROR_STRING(ENV_UNDEF_ERROR, "gtmcrypt_config");
+			UPDATE_ERROR_STRING(ENV_UNDEF_ERROR, "ydb_crypt_config/gtmcrypt_config");
 			return -1;
 		}
-		/* The gtmcrypt_config variable is defined and accessible. Copy it to a global for future references. */
-		strncpy(gc_config_filename, config_env, YDB_PATH_MAX);
+		/* The ydb_crypt_config variable is defined and accessible. Copy it to a global for future references. */
+		SNPRINTF(gc_config_filename, SIZEOF(gc_config_filename), "%s", config_env);
 		just_read = TRUE;
 	}
 	assert(!CONFIG_FILE_UNREAD);
@@ -884,9 +916,9 @@ STATICFNDEF void insert_unresolved_key_link(char *keyname, char *keypath, int in
 
 	node = (gtm_keystore_unres_key_link_t *)MALLOC(SIZEOF(gtm_keystore_unres_key_link_t));
 	memset(node->key_name, 0, YDB_PATH_MAX);
-	strncpy(node->key_name, keyname, YDB_PATH_MAX);
+	SNPRINTF(node->key_name, SIZEOF(node->key_name), "%s", keyname);
 	memset(node->key_path, 0, YDB_PATH_MAX);
-	strncpy(node->key_path, keypath, YDB_PATH_MAX);
+	SNPRINTF(node->key_path, SIZEOF(node->key_path), "%s", keypath);
 	node->next = keystore_by_unres_key_head;
 	node->index = index;
 	node->status = status;

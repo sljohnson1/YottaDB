@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -47,7 +50,7 @@
 #define dqloop(q, n, i) DQLOOP(q, n, i)
 #define dqinit(q, n)	DQINIT(q, n)
 
-/*#define DEBUG_TRIPLES / * Uncomment this to do triple debugging, which is also tied to gtmdbglvl, as of this writing: 0x4000 */
+/*#define DEBUG_TRIPLES / * Uncomment this to do triple debugging, which is also tied to ydb_dbglvl, as of this writing: 0x4000 */
 #ifndef DEBUG_TRIPLES
 #  define dqdel(x, n)		DQDEL(x, n)
 #  define dqdelchain(q, x, n)	DQDELCHAIN(q, x, n)
@@ -59,7 +62,7 @@
 #  include "compiler.h"
 #  include "gtm_string.h"
 #  include "gtmdbglvl.h"
-GBLREF	uint4		gtmDebugLevel;
+GBLREF	uint4		ydbDebugLevel;
 /* q: head of queue to check; n: the name of queue; b: whether to check main exorder (from curtchain) and any expr_start queue */
 #  define CHKTCHAIN(q, n, b)								\
 MBSTART {										\
@@ -68,7 +71,7 @@ MBSTART {										\
 											\
 	SETUP_THREADGBL_ACCESS;							\
 					/* memcmp() is fast and 3 chars sufficient */	\
- 	if ((gtmDebugLevel & GDL_DebugCompiler) && (0 == memcmp(#n, "exorder", 3)))	\
+ 	if ((ydbDebugLevel & GDL_DebugCompiler) && (0 == memcmp(#n, "exorder", 3)))	\
 	{										\
 		if ((triple *)-1 != (triple *)q) /* to avoid post-checking deletes */	\
 			chktchain((triple *)q);					\
@@ -76,8 +79,8 @@ MBSTART {										\
 		{									\
 			c = TREF(curtchain);						\
 			chktchain(c);		/* this might be redundant, or not! */	\
-			c = TREF(expr_start);						\
-			if (NULL != c)							\
+			c = TREF(expr_start_orig);					\
+			if ((NULL != c) && (c != TREF(expr_start)))			\
 				chktchain(c);	/* this extra has been rewarding */	\
 		}									\
 	}										\

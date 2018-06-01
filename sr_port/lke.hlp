@@ -45,7 +45,7 @@
    YottaDB installation procedure places the LKE utility package in a directory
    specified by the environment variable ydb_dist.
 
-   LKE requires that the environment variable gtmgbldir be defined.
+   LKE requires that the environment variable ydb_gbldir be defined.
 
    Invoke LKE using the following command at the shell prompt. If this does
    not work, consult your system manager to investigate setup and file access
@@ -582,7 +582,7 @@
 
    **Note**
 
-   This help file is a concise representation of the revision r1.20 of the
+   This help file is a concise representation of the revision r1.22 of the
    Administration and Operations Guide. To obtain a copy of the current
    revision, go to https://docs.yottadb.com/AdminOpsGuide/index.html.
 

@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2003-2017 Fidelity National Information	*
+ * Copyright (c) 2003-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -40,7 +43,7 @@
 #include "ftok_sems.h"
 #include "repl_instance.h"
 #include "mu_rndwn_repl_instance.h"
-#include "deferred_signal_handler.h"
+#include "deferred_exit_handler.h"
 #include "mu_rndwn_file.h"
 #include "read_db_files_from_gld.h"
 #include "mur_db_files_from_jnllist.h"
@@ -56,7 +59,6 @@
 #include "repl_msg.h"
 #include "gtmsource.h"
 #include "mu_rndwn_replpool.h"
-#include "gtm_logicals.h"
 #include <sys/sem.h>
 #include "tp.h"			/* for "insert_region" prototype */
 #include "gtm_time.h"
@@ -103,7 +105,7 @@
 	int			save_errno, sopcnt, status;								\
 	struct sembuf		sop[3];											\
 															\
-	SET_GTM_SOP_ARRAY(sop, sopcnt, FALSE, SEM_UNDO);								\
+	SET_YDB_SOP_ARRAY(sop, sopcnt, FALSE, SEM_UNDO);								\
 	assert(2 == sopcnt);												\
 	lcl_reg = REGLIST->reg;												\
 	lcl_rctl = REGLIST->rctl;											\
@@ -242,7 +244,7 @@ boolean_t mur_open_files()
 	 * That is, journal file names specified must be from current global directory.
 	 */
 	if (star_specified || mur_options.update)
-	{	/* "*" is specified or it is -recover or -rollback. We require gtmgbldir to be set in all these cases */
+	{	/* "*" is specified or it is -recover or -rollback. We require ydb_gbldir to be set in all these cases */
 		assert(NULL == gd_header);
 		gvinit();	/* read in current global directory */
 		assert(NULL != gd_header);
@@ -360,7 +362,9 @@ boolean_t mur_open_files()
 							       REG_LEN_STR(gv_cur_region), DB_LEN_STR(gv_cur_region));
 						return FALSE;
 					}
-					max_epoch_interval = MAX(cs_data->epoch_interval, max_epoch_interval);
+					/* Only select epoch_interval values (for timed epochs) which are sane. */
+					if (MAX_EPOCH_INTERVAL >= cs_data->epoch_interval)
+						max_epoch_interval = MAX(cs_data->epoch_interval, max_epoch_interval);
 					assert(!cs_addrs->hold_onto_crit);
 					rctl->standalone = TRUE;
 				}

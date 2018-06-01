@@ -3,7 +3,7 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -52,7 +52,6 @@ GBLREF uint4		dollar_trestart;
 GBLREF io_log_name	*io_root_log_name;
 GBLREF bool		licensed;
 GBLREF int4		lkid, lid;
-GBLREF io_pair		*io_std_device;
 GBLREF io_log_name	*dollar_principal;
 GBLREF mstr		dollar_zpin;			/* contains "< /" */
 GBLREF mstr		dollar_zpout;			/* contains "> /" */
@@ -127,7 +126,7 @@ int op_open(mval *device, mval *devparms, mval *timeout, mval *mspace)
 		if (!licensed || LP_CONFIRM(lid, lkid)==LP_NOTACQ)
 			licensed= FALSE;
 #		endif
-		switch(stat = TRANS_LOG_NAME(&device->str, &tn, &buf1[0], SIZEOF(buf1), dont_sendmsg_on_log2long))
+		switch(stat = trans_log_name(&device->str, &tn, &buf1[0], SIZEOF(buf1), dont_sendmsg_on_log2long))
 		{
 		case SS_NORMAL:
 			tl = get_log_name(&tn, INSERT);

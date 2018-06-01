@@ -153,7 +153,7 @@ boolean_t db_ipcs_reset(gd_region *reg)
 		 * BEFORE removing the semaphore as otherwise the waiting process in db_init will notice the semaphore removal
 		 * first and will read the file header and can potentially notice the stale semid/shmid values.
 		 */
-		if (!reg->read_only DEBUG_ONLY(&& !TREF(gtm_usesecshr)))
+		if (!reg->read_only DEBUG_ONLY(&& !TREF(ydb_usesecshr)))
 		{
 			csd->semid = INVALID_SEMID;
 			csd->shmid = INVALID_SHMID;
@@ -220,7 +220,7 @@ boolean_t db_ipcs_reset(gd_region *reg)
 	 * remove the ftok semaphore as well. This means, not able to lock or release the ftok semaphore is not treated
 	 * as an error condition.
 	 */
-	if (ftok_sem_lock(reg, TRUE)) /* immediate=TRUE because we don't want to wait while holding access semaphore */
+	if (ftok_sem_lock(reg, IMMEDIATE_TRUE)) /* immediate=TRUE because we don't want to wait while holding access semaphore */
 	{
 		assert(udi->counter_ftok_incremented || jgbl.onlnrlbk || INST_FREEZE_ON_ERROR_POLICY);
 		ftok_sem_release(reg, udi->counter_ftok_incremented, TRUE);

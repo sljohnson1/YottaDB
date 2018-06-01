@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -24,16 +27,14 @@
 #include "filestruct.h"
 #include "gtmsiginfo.h"
 #include "mutex.h"
-#include "deferred_signal_handler.h"
+#include "deferred_exit_handler.h"
 #include "have_crit.h"
 #include "caller_id.h"
 #include "jnl.h"
 
 GBLREF	volatile int4		crit_count;
 GBLREF	uint4 			process_id;
-GBLREF	volatile int		suspend_status;
 GBLREF	node_local_ptr_t	locknl;
-GBLREF	volatile int4           gtmMallocDepth;         /* Recursion indicator */
 GBLREF	jnl_gbls_t		jgbl;
 
 error_def(ERR_CRITRESET);
@@ -85,7 +86,5 @@ void	rel_lock(gd_region *reg)
 	} else
 		CRIT_TRACE(csa, crit_ops_nocrit);
 	/* Now that crit for THIS region is released, check if deferred signal/exit handling can be done and if so do it */
-	DEFERRED_EXIT_HANDLING_CHECK;
-	if ((DEFER_SUSPEND == suspend_status) && OK_TO_INTERRUPT)
-		suspend(SIGSTOP);
+	DEFERRED_SIGNAL_HANDLING_CHECK;
 }

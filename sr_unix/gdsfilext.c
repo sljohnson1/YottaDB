@@ -96,8 +96,8 @@ GBLREF	sgm_info		*sgm_info_ptr;
 GBLREF	unsigned int		t_tries;
 GBLREF	jnl_gbls_t		jgbl;
 GBLREF	inctn_detail_t		inctn_detail;			/* holds detail to fill in to inctn jnl record */
-GBLREF	boolean_t		gtm_dbfilext_syslog_disable;	/* control whether db file extension message is logged or not */
-GBLREF	uint4			gtmDebugLevel;
+GBLREF	boolean_t		ydb_dbfilext_syslog_disable;	/* control whether db file extension message is logged or not */
+GBLREF	uint4			ydbDebugLevel;
 GBLREF	jnlpool_addrs_ptr_t	jnlpool;
 
 error_def(ERR_DBFILERR);
@@ -197,7 +197,7 @@ uint4	 gdsfilext(uint4 blocks, uint4 filesize, boolean_t trans_in_prog)
 		rts_error_csa(CSA_ARG(cs_addrs) VARLSTCNT(5) ERR_DBFILERR, 2, DB_LEN_STR(gv_cur_region), save_errno);
 	} else
 	{
-		if (!(gtmDebugLevel & GDL_IgnoreAvailSpace))
+		if (!(ydbDebugLevel & GDL_IgnoreAvailSpace))
 		{	/* Bypass this space check if debug flag above is on. Allows us to create a large sparce DB
 			 * in space it could never fit it if wasn't sparse. Needed for some tests.
 			 */
@@ -572,7 +572,7 @@ uint4	 gdsfilext(uint4 blocks, uint4 filesize, boolean_t trans_in_prog)
  	}
 	GDSFILEXT_CLNUP;
 	INCR_GVSTATS_COUNTER(cs_addrs, cs_addrs->nl, n_db_extends, 1);
-	if (!gtm_dbfilext_syslog_disable)
+	if (!ydb_dbfilext_syslog_disable)
 		send_msg_csa(CSA_ARG(cs_addrs) VARLSTCNT(7) ERR_DBFILEXT, 5, DB_LEN_STR(gv_cur_region), blocks, new_total,
 			&curr_tn);
 	return (SS_NORMAL);

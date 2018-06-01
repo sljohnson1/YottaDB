@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -24,7 +27,7 @@
 #include "send_msg.h"
 #include "mutex.h"
 #include "wcs_recover.h"
-#include "deferred_signal_handler.h"
+#include "deferred_exit_handler.h"
 #include "caller_id.h"
 #include "is_proc_alive.h"
 #ifdef DEBUG
@@ -76,8 +79,8 @@ void	grab_crit(gd_region *reg)
 	save_jnlpool = jnlpool;
 	if (csa->jnlpool && (csa->jnlpool != jnlpool))
 		jnlpool = csa->jnlpool;
-	if (gtm_white_box_test_case_enabled
-		&& (WBTEST_SENDTO_EPERM == gtm_white_box_test_case_number)
+	if (ydb_white_box_test_case_enabled
+		&& (WBTEST_SENDTO_EPERM == ydb_white_box_test_case_number)
 		&& (0 == cnl->wbox_test_seq_num))
 	{
 		FPRINTF(stderr, "MUPIP BACKUP entered grab_crit\n");
@@ -111,8 +114,8 @@ void	grab_crit(gd_region *reg)
 		status = gtm_mutex_lock(reg, mutex_spin_parms, crash_count, MUTEX_LOCK_WRITE);
 		assert((NULL == local_jnlpool) || (local_jnlpool == jnlpool));
 #		ifdef DEBUG
-		if (gtm_white_box_test_case_enabled
-			&& (WBTEST_SENDTO_EPERM == gtm_white_box_test_case_number)
+		if (ydb_white_box_test_case_enabled
+			&& (WBTEST_SENDTO_EPERM == ydb_white_box_test_case_number)
 			&& (1 == cnl->wbox_test_seq_num))
 		{
 			FPRINTF(stderr, "MUPIP SET entered grab_crit\n");

@@ -3,7 +3,7 @@
  * Copyright (c) 2001-2015 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -420,7 +420,8 @@ enum actlv_type
 	actlv_op_merge2,		/* = 19 */
 	actlv_tp_unwind_restart,	/* = 20 */
 	actlv_tp_unwind_rollback,	/* = 21 */
-	actlv_tp_unwind_commit		/* = 22 */
+	actlv_tp_unwind_commit,		/* = 22 */
+	actlv_ydb_simpleapi_ch		/* = 23 */
 };
 
 #ifdef DEBUG

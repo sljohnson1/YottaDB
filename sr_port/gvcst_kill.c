@@ -3,7 +3,7 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -170,7 +170,7 @@ void	gvcst_kill(boolean_t do_subtree)
 	if (!dollar_tlevel)
 	{
 		sn_tpwrapped = TRUE;
-		op_tstart((IMPLICIT_TSTART + IMPLICIT_TRIGGER_TSTART), TRUE, &literal_batch, 0);
+		op_tstart((IMPLICIT_TSTART | IMPLICIT_TRIGGER_TSTART), TRUE, &literal_batch, 0);
 		assert(!donot_INVOKE_MUMTSTART);
 		DEBUG_ONLY(donot_INVOKE_MUMTSTART = TRUE);
 		ESTABLISH_NORET(gvcst_kill_ch, est_first_pass);
@@ -465,7 +465,7 @@ research:
 		if (gvt_root)
 		{
 			#if defined(DEBUG)
-			if (gtm_white_box_test_case_enabled && (WBTEST_ANTIFREEZE_GVKILLFAIL == gtm_white_box_test_case_number))
+			if (ydb_white_box_test_case_enabled && (WBTEST_ANTIFREEZE_GVKILLFAIL == ydb_white_box_test_case_number))
 			{
 				cdb_status = cdb_sc_blknumerr;
 				/* Skip assert inside GOTO_RETRY macro as the WBTEST_ANTIFREEZE_GVKILLFAIL white-box testcase

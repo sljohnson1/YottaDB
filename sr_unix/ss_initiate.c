@@ -1,6 +1,6 @@
 /****************************************************************
  *								*
- * Copyright (c) 2009-2017 Fidelity National Information	*
+ * Copyright (c) 2009-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
@@ -49,10 +49,9 @@
 #include "interlock.h"
 #include "add_inter.h"
 #include "sleep_cnt.h"
-#include "trans_log_name.h"
+#include "ydb_trans_log_name.h"
 #include "mupint.h"
 #include "memcoherency.h"
-#include "gtm_logicals.h"
 #ifdef __MVS__
 #include "gtm_zos_io.h"
 #endif
@@ -85,7 +84,7 @@ ZOS_ONLY(error_def(ERR_BADTAG);)
 ZOS_ONLY(error_def(ERR_TEXT);)
 
 
-#define SNAPSHOT_TMP_PREFIX	"gtm_snapshot_"
+#define SNAPSHOT_TMP_PREFIX	"ydb_snapshot_"
 #define ISSUE_WRITE_ERROR_AND_EXIT(reg, RC, csa, tempfilename)									\
 {																\
 	gtm_putmsg_csa(CSA_ARG(csa) VARLSTCNT(7) ERR_SSFILOPERR, 4, LEN_AND_LIT("write"), LEN_AND_STR(tempfilename), RC);	\
@@ -211,7 +210,7 @@ boolean_t	ss_initiate(gd_region *reg, 			/* Region in which snapshot has to be s
 	int			save_errno, shdw_fd, ss_shmsize, ss_shm_vbn, status, tmpfd, user_id;
 	ZOS_ONLY(int		realfiletag;)
 	long			ss_shmid = INVALID_SHMID;
-	mstr			tempdir_full, tempdir_log, tempdir_trans;
+	mstr			tempdir_full, tempdir_trans;
 	uint4			*kip_pids_arr_ptr;
 	sgmnt_addrs		*csa;
 	sgmnt_data_ptr_t	csd;
@@ -270,9 +269,9 @@ boolean_t	ss_initiate(gd_region *reg, 			/* Region in which snapshot has to be s
 	assert(!reg->read_only || FROZEN_HARD(csa));
 	/* ============================ STEP 1 : Shadow file name construction ==============================
 	 *
-	 * --> Directory is taken from GTM_SNAPTMPDIR, if available, else GTM_BAK_TEMPDIR_LOG_NAME_UC, if available,
+	 * --> Directory is taken from ydb_snaptmpdir, if available, else ydb_baktmpdir, if available,
 	 *     else use current directory.
-	 * --> use the template - gtm_snapshot_<region_name>_<pid_in_hex>_XXXXXX
+	 * --> use the template - ydb_snapshot_<region_name>_<pid_in_hex>_XXXXXX
 	 * --> the last six characters will be replaced by MKSTEMP below
 	 * Note: MUPIP RUNDOWN will rely on the above template to do the cleanup if there were a
 	 * crash that led to the improper shutdown of the snapshot process. So, if the above template
@@ -289,30 +288,26 @@ boolean_t	ss_initiate(gd_region *reg, 			/* Region in which snapshot has to be s
 	memcpy(tempnamprefix + tempnamprefix_len, reg->rname, reg->rname_len);
 	tempnamprefix_len += reg->rname_len;
 	SNPRINTF(&tempnamprefix[tempnamprefix_len], MAX_FN_LEN, "_%x", process_id);
-	tempdir_log.addr = GTM_SNAPTMPDIR;
-	tempdir_log.len = STR_LIT_LEN(GTM_SNAPTMPDIR);
 	tempfilename = tempdir_full.addr = tempdir_full_buffer;
 	tempdir_full.len = SIZEOF(tempdir_full_buffer);
 	/* Check if the  environment variable is defined or not.
-	 * Side-effect: tempdir_trans.addr = tempdir_trans_buffer irrespective of whether TRANS_LOG_NAME
+	 * Side-effect: tempdir_trans.addr = tempdir_trans_buffer irrespective of whether ydb_trans_log_name
 	 * succeeded or not.
 	 */
-	status = TRANS_LOG_NAME(&tempdir_log,
+	status = ydb_trans_log_name(YDBENVINDX_SNAPTMPDIR,
 				&tempdir_trans,
 				tempdir_trans_buffer,
 				SIZEOF(tempdir_trans_buffer),
-				do_sendmsg_on_log2long);
+				IGNORE_ERRORS_TRUE, NULL);
 	if (SS_NORMAL == status && (NULL != tempdir_trans.addr) && (0 != tempdir_trans.len))
 		*(tempdir_trans.addr + tempdir_trans.len) = 0;
 	else
 	{	/* Not found - try GTM_BAK_TEMPDIR_LOG_NAME_UC instead */
-		tempdir_log.addr = GTM_BAK_TEMPDIR_LOG_NAME_UC;
-		tempdir_log.len = STR_LIT_LEN(GTM_BAK_TEMPDIR_LOG_NAME_UC);
-		status = TRANS_LOG_NAME(&tempdir_log,
+		status = ydb_trans_log_name(YDBENVINDX_BAKTMPDIR_UC,
 					&tempdir_trans,
 					tempdir_trans_buffer,
 					SIZEOF(tempdir_trans_buffer),
-					do_sendmsg_on_log2long);
+					IGNORE_ERRORS_TRUE, NULL);
 		if (SS_NORMAL == status && (NULL != tempdir_trans.addr) && (0 != tempdir_trans.len))
 			*(tempdir_trans.addr + tempdir_trans.len) = 0;
 		else
@@ -445,7 +440,7 @@ boolean_t	ss_initiate(gd_region *reg, 			/* Region in which snapshot has to be s
 	grab_crit(reg);
 	INCR_INHIBIT_KILLS(cnl);
 	kip_pids_arr_ptr = cnl->kip_pid_array;
-	prev_ss_shmsize = 0;
+	prev_ss_shmsize = ss_shmsize = 0;
 	crit_counter = 1;
 	for (retries = 0; MAX_TRY_FOR_TOT_BLKS >= retries; ++retries)
 	{

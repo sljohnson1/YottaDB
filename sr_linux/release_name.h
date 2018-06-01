@@ -1,12 +1,12 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
  * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
- * Copyright (c) 2017,2018 Stephen L Johnson.			*
+ * Copyright (c) 2017-2018 Stephen L Johnson.			*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -18,9 +18,14 @@
 
 #ifndef GTM_RELEASE_NAME
 
-#define GTM_VERSION	"V6.3"
-#define	GTM_ZVERSION	"V6.3-003A"
-#define	YDB_ZYRELEASE	"r1.10"
+#define GTM_VERSION		"V6.3"
+#define	GTM_ZVERSION		"V6.3-004"
+#define	YDB_ZYRELEASE		"r1.23"
+
+/* Note: YDB_RELEASE_STAMP is set as part of the cmake build process.
+ * Example values are
+ *	#define YDB_RELEASE_STAMP	"20180316 15:27"
+ */
 
 #if defined(__x86_64__)
 # define YDB_PLATFORM		"Linux x86_64"

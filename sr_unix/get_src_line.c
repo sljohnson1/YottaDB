@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -50,6 +50,7 @@
 #include "rtn_src_chksum.h"
 #include "cmd_qlf.h"
 #include "arlinkdbg.h"
+#include "io.h"		/* for ASCII_CR */
 
 #define RT_TBL_SZ 20
 
@@ -375,6 +376,9 @@ STATICFNDEF boolean_t fill_src_tbl_via_mfile(routine_source **src_tbl_result, rh
 				{
 					FCLOSE(fp, fclose_res);
 					assert(!fclose_res);
+					if (src_tbl->srcbuff)
+						free(src_tbl->srcbuff);
+					free(src_tbl);
 					rts_error_csa(CSA_ARG(NULL) VARLSTCNT(3) ERR_TXTSRCFMT, 0, errno);
 					assert(FALSE);
 				} else
@@ -388,8 +392,8 @@ STATICFNDEF boolean_t fill_src_tbl_via_mfile(routine_source **src_tbl_result, rh
 				size = (int)STRLEN(buff);
 				prev_srcptr = srcptr;
 				srcptr += size;
-				if (srcptr > (src_tbl->srcbuff + srcsize))
-				{	/* source file has been concurrently overwritten (and extended) */
+				if ((NULL == src_tbl->srcbuff) || (srcptr > (src_tbl->srcbuff + srcsize)))
+				{	/* source file has been concurrently overwritten (and extended or truncated) */
 					srcstat |= CHECKSUMFAIL;
 					eof_seen = TRUE;
 					size = 0;
@@ -398,6 +402,9 @@ STATICFNDEF boolean_t fill_src_tbl_via_mfile(routine_source **src_tbl_result, rh
 					memcpy(prev_srcptr, buff, size);
 					/* Strip trailing '\n' if any (if at least one byte was read in) */
 					if (size && ('\n' == buff[size - 1]))
+						size--;
+					/* Strip trailing CR if any (if at least one byte is left) */
+					if (size && (ASCII_CR == buff[size - 1]))
 						size--;
 				}
 			}

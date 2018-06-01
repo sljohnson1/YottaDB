@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2015 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -45,8 +48,6 @@
 GBLREF	uint4		process_id;
 GBLREF	jnl_gbls_t	jgbl;
 
-error_def(ERR_FSYNCTIMOUT);
-error_def(ERR_JNLFRCDTERM);
 error_def(ERR_JNLFSYNCERR);
 error_def(ERR_JNLFSYNCLSTCK);
 error_def(ERR_TEXT);
@@ -102,13 +103,13 @@ void jnl_fsync(gd_region *reg, uint4 fsync_addr)
 				performCASLatchCheck(&jb->fsync_in_prog_latch, TRUE);
 		}
 #		ifdef DEBUG
-		if (gtm_white_box_test_case_enabled
-			&& (WBTEST_EXTEND_JNL_FSYNC == gtm_white_box_test_case_number))
+		if (ydb_white_box_test_case_enabled
+			&& (WBTEST_EXTEND_JNL_FSYNC == ydb_white_box_test_case_number))
 		{
 			FPRINTF(stderr, "JNL_FSYNC: will sleep for 40 seconds\n", process_id);
 			LONG_SLEEP(40);
 			FPRINTF(stderr, "JNL_FSYNC: done sleeping\n", process_id);
-			gtm_white_box_test_case_enabled = FALSE;
+			ydb_white_box_test_case_enabled = FALSE;
 		}
 #		endif
 		if (fsync_addr > jb->fsync_dskaddr && !JNL_FILE_SWITCHED(jpc))

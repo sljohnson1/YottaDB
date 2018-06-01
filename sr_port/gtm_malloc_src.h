@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2015 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -21,7 +21,7 @@
  * See the headers of those modules for explanations of how the storage
  * manager build is actually accomplished.
  *
- * Debugging is controlled via the "gtmdbglvl" environment variable in the Unix environment.
+ * Debugging is controlled via the "ydb_dbglvl" environment variable in the Unix environment.
  * If this variable is set to a non-zero value, the debugging environment
  * is enabled. The debugging features turned on will correspond to the bit
  * values defined gtmdbglvl.h. Note that this mechanism is versatile enough
@@ -70,16 +70,15 @@
 #include "gtmmsg.h"
 #include "print_exit_stats.h"
 #include "mmemory.h"
-#include "gtm_logicals.h"
 #include "cache.h"
 #include "gtm_malloc.h"
 #include "have_crit.h"
 #include "gtm_env_init.h"
 #include "gtmio.h"
-#include "deferred_signal_handler.h"
+#include "deferred_exit_handler.h"
 
 /* This routine is compiled twice, once as debug and once as pro and put into the same pro build. The alternative
- * memory manager is selected with the debug flags (any non-zero gtmdbglvl setting invokes debug memory manager in
+ * memory manager is selected with the debug flags (any non-zero ydb_dbglvl setting invokes debug memory manager in
  * a pro build). So the global variables (defined using the STATICD macro) have to be two different fields.
  * One for pro, one for dbg. The fields have different values and different sizes between the two compiles but
  * exist in the same build. They cannot coexist. That is why STATICD is defined to be static for PRO and GBLDEF for DBG.
@@ -112,24 +111,25 @@
 #endif
 
 /* #GTM_THREAD_SAFE : The below macro (MALLOC) is thread-safe because caller ensures serialization with locks */
-#  define MALLOC(size, addr) 										\
-{													\
+#  define MALLOC(size, addr)											\
+{														\
 	assert(IS_PTHREAD_LOCKED_AND_HOLDER);									\
-	if ((0 < gtm_max_storalloc) && ((size + totalRmalloc + totalRallocGta) > gtm_max_storalloc))	\
-	{	/* Boundary check for $gtm_max_storalloc (if set) */					\
-		gtmMallocErrorSize = size;								\
-		gtmMallocErrorCallerid = CALLERID;							\
-		gtmMallocErrorErrno = ERR_MALLOCMAXUNIX;						\
-		raise_gtmmemory_error();								\
-	}												\
-	addr = (void *)malloc(size);									\
-	if (NULL == (void *)addr)									\
-	{												\
-		gtmMallocErrorSize = size;								\
-		gtmMallocErrorCallerid = CALLERID;							\
-		gtmMallocErrorErrno = errno;								\
-		raise_gtmmemory_error();								\
-	}												\
+	if (!ydbSystemMalloc											\
+		&& (0 < ydb_max_storalloc) && ((size + totalRmalloc + totalRallocGta) > ydb_max_storalloc))	\
+	{	/* Boundary check for $ydb_max_storalloc (if set) */						\
+		gtmMallocErrorSize = size;									\
+		gtmMallocErrorCallerid = CALLERID;								\
+		gtmMallocErrorErrno = ERR_MALLOCMAXUNIX;							\
+		raise_gtmmemory_error();									\
+	}													\
+	addr = (void *)malloc(size);										\
+	if (NULL == (void *)addr)										\
+	{													\
+		gtmMallocErrorSize = size;									\
+		gtmMallocErrorCallerid = CALLERID;								\
+		gtmMallocErrorErrno = errno;									\
+		raise_gtmmemory_error();									\
+	}													\
 }
 #  define FREE(size, addr) free(addr);
 #define MAXBACKFILL (16 * 1024)			/* Maximum backfill of large structures */
@@ -168,12 +168,12 @@
 #  define SET_ELEM_MAX(qtype, idx) SET_MAX(qtype##ElemMax[idx], qtype##ElemCnt[idx])
 #  define TRACE_MALLOC(addr, len, tn) 											\
 {															\
-	if (GDL_SmTrace & gtmDebugLevel)										\
+	if (GDL_SmTrace & ydbDebugLevel)										\
 		DBGFPF((stderr, "Malloc at 0x%lx of %ld bytes from 0x%lx (tn=%ld)\n", addr, len, CALLERID, tn));	\
 }
 #  define TRACE_FREE(addr, len, tn)											\
 {															\
-	if (GDL_SmTrace & gtmDebugLevel)										\
+	if (GDL_SmTrace & ydbDebugLevel)										\
 		DBGFPF((stderr, "Free at 0x%lx of %d bytes from 0x%lx (tn=%ld)\n", addr, len, CALLERID, tn));		\
 }
 #else
@@ -305,9 +305,10 @@ GBLDEF smTraceItem smFrees[MAXSMTRACE];			/* Array of recent releasers */
 GBLDEF volatile unsigned int smTn;			/* Storage management (wrappable) transaction number */
 GBLDEF unsigned int outOfMemorySmTn;			/* smTN when ran out of memory */
 #endif
-GBLREF	uint4		gtmDebugLevel;			/* Debug level (0 = using default sm module so with
+GBLREF	uint4		ydbDebugLevel;			/* Debug level (0 = using default sm module so with
 							 * a DEBUG build, even level 0 implies basic debugging)
 							 */
+GBLREF	boolean_t	ydbSystemMalloc;		/* Use the system's malloc() instead of our own */
 GBLREF  int		process_exiting;		/* Process is on it's way out */
 GBLREF	volatile int4	gtmMallocDepth;			/* Recursion indicator. Volatile so it gets stored immediately */
 GBLREF	volatile void	*outOfMemoryMitigation;		/* Reserve that we will freed to help cleanup if run out of memory */
@@ -315,7 +316,7 @@ GBLREF	uint4		outOfMemoryMitigateSize;	/* Size of above reserve in Kbytes */
 GBLREF	int		mcavail;
 GBLREF	mcalloc_hdr	*mcavailptr, *mcavailbase;
 GBLREF	size_t		totalRallocGta;			/* Size allocated by gtm_text_alloc if at all */
-GBLREF	size_t		gtm_max_storalloc;		/* Max value for $ZREALSTOR or else memory error is raised */
+GBLREF	size_t		ydb_max_storalloc;		/* Max value for $ZREALSTOR or else memory error is raised */
 GBLREF	void		(*cache_table_relobjs)(void);	/* Function pointer to call cache_table_rebuild() */
 GBLREF	ch_ret_type	(*ht_rhash_ch)();		/* Function pointer to hashtab_rehash_ch */
 GBLREF	ch_ret_type	(*jbxm_dump_ch)();		/* Function pointer to jobexam_dump_ch */
@@ -456,14 +457,14 @@ void gtmSmInit(void)	/* Note renamed to gtmSmInit_dbg when included in gtm_mallo
 	 *
 	 * Note that in a pro build, this routine (like several others in this module) has two flavors (pro and dbg)
 	 * with the debug flavor being named gtmSmInitdbg(). If driving gtm_env_init() tells us that we want to use
-	 * the debug storage manager (i.e. gtmDebugLevel is non-zero), then we need to not finish this initialization
+	 * the debug storage manager (i.e. ydbDebugLevel is non-zero), then we need to not finish this initialization
 	 * and return to gtm_malloc() which also notes this change and drives gtm_malloc_dbg() which then drives the
 	 * correct initialization routine.
 	 */
 	if (!TREF(gtm_env_init_started))
 	{
 		gtm_env_init();
-		if (gtmSmInitialized PRO_ONLY(|| (0 != gtmDebugLevel)))
+		if (gtmSmInitialized PRO_ONLY(|| (0 != ydbDebugLevel)))
 			return;		/* A nested call took care of this already so we're done! */
 	}
 	/* WARNING!! Since this is early initialization, the following asserts are not well behaved if they do
@@ -522,8 +523,8 @@ void gtmSmInit(void)	/* Note renamed to gtmSmInit_dbg when included in gtm_mallo
 		if (NULL == outOfMemoryMitigation)
 		{
 			save_errno = errno;
-			gtm_putmsg_csa(CSA_ARG(NULL) VARLSTCNT(5) ERR_INVMEMRESRV, 2, RTS_ERROR_LITERAL("$gtm_memory_reserve"),
-				   save_errno);
+			gtm_putmsg_csa(CSA_ARG(NULL) VARLSTCNT(5)
+				ERR_INVMEMRESRV, 2, RTS_ERROR_LITERAL("$ydb_memory_reserve/$gtm_memory_reserve"), save_errno);
 			EXIT(save_errno);
 		}
 	}
@@ -567,7 +568,7 @@ storElem *findStorElem(int sizeIndex)	/* Note renamed to findStorElem_dbg when i
 #		ifdef DEBUG
 		memcpy(uStor2->headMarker, markerChar, SIZEOF(uStor2->headMarker));	/* Put header tag in place */
 		/* Backfill entire block being freed so usage of it will cause problems */
-		if (GDL_SmBackfill & gtmDebugLevel)
+		if (GDL_SmBackfill & ydbDebugLevel)
 			backfill((unsigned char *)uStor2 + hdrSize, TwoTable[sizeIndex] - hdrSize);
 #		endif
 		ENQUEUE_STOR_ELEM(free, sizeIndex, uStor2);	/* Place on free queue */
@@ -612,7 +613,7 @@ storElem *findStorElem(int sizeIndex)	/* Note renamed to findStorElem_dbg when i
 			/* Backfill entire block on free queue so we can detect trouble
 			 * with premature usage or overflow from something else
 			 */
-			if (GDL_SmBackfill & gtmDebugLevel)
+			if (GDL_SmBackfill & ydbDebugLevel)
 				backfill((unsigned char *)uStor2 + hdrSize, TwoTable[MAXINDEX] - hdrSize);
 #			endif
 			ENQUEUE_STOR_ELEM(free, MAXINDEX, uStor2);	/* Place on free queue */
@@ -643,14 +644,30 @@ void *gtm_malloc(size_t size)	/* Note renamed to gtm_malloc_dbg when included in
 	int		sizeIndex, i, hdrSize;
 	unsigned char	*trailerMarker;
 	boolean_t	reentered, was_holder;
+	intrpt_state_t	prev_intrpt_state;
+	void		*rval;
 
+	if (ydbSystemMalloc)
+	{
+		if (0 == size)
+			return &NullStruct.nullStr[0];
+		DEFER_INTERRUPTS(INTRPT_IN_FUNC_WITH_MALLOC, prev_intrpt_state);
+		rval = malloc(size);
+		if (!rval)
+		{
+			PTHREAD_MUTEX_LOCK_IF_NEEDED(was_holder);	/* get exclusive thread lock in case threads are in use */
+			raise_gtmmemory_error();
+		}
+		ENABLE_INTERRUPTS(INTRPT_IN_FUNC_WITH_MALLOC, prev_intrpt_state);
+		return rval;
+	}
 #	ifndef DEBUG
 	/* If we are not expanding for DEBUG, check now if DEBUG has been turned on.
 	 * If it has, we are in the wrong module Jack. This IF is structured so that
 	 * if this is the normal (default/optimized) case we will fall into the code
 	 * and handle the rerouting at the end.
 	 */
-	if (GDL_None == gtmDebugLevel)
+	if (GDL_None == ydbDebugLevel)
 	{
 #	endif
 		/* Note that this if is also structured for maximum fallthru. The else will
@@ -690,7 +707,7 @@ void *gtm_malloc(size_t size)	/* Note renamed to gtm_malloc_dbg when included in
 				 *  GDL_SmBackfill and GDL_SmChkAllocBackfill, this padding will be backfilled and
 				 *  checked during allocate storage validation calls.
 				 */
-				if (GDL_SmStorHog & gtmDebugLevel)
+				if (GDL_SmStorHog & ydbDebugLevel)
 				{
 					if (MAXTWO >= size)
 						tSize += (MIN(MAX(size / 2, 32), 256));
@@ -700,7 +717,7 @@ void *gtm_malloc(size_t size)	/* Note renamed to gtm_malloc_dbg when included in
 #				endif
 				/* The difference between $ZALLOCSTOR and $ZUSEDSTOR (totalAlloc and totalUsed global vars)  is
 				 * that when you allocate, say 16 bytes, that comes out of a 32 byte chunk (with the pro storage
-				 * mgr) with the rest being unusable. In a debug build (or a pro build with $gtmdbglvl set to
+				 * mgr) with the rest being unusable. In a debug build (or a pro build with $ydb_dbglvl set to
 				 * something non-zero), $ZUSEDSTOR is incremented by 16 bytes (the requested allocation) while
 				 * $ZALLOCSTOR is incremented by 32 bytes (the actual allocation). But, in a pro build using
 				 * the pro memory manager, we do not track the user-allocated size anywhere. We know it when
@@ -709,7 +726,7 @@ void *gtm_malloc(size_t size)	/* Note renamed to gtm_malloc_dbg when included in
 				 * the free to be consistent with the allocation, we have to use the one value we know at both
 				 * malloc and free times - 32 bytes. The net result is that $ZALLOCSTOR and $ZUSEDSTOR report
 				 * the same value in a pro build with the pro stmgr while they will be quite different in a
-				 * debug build or a pro build with $gtmdbglvl engaged. The difference between them shows the
+				 * debug build or a pro build with $ydb_dbglvl engaged. The difference between them shows the
 				 * allocation overhead of gtm_malloc itself.
 				 */
 				if (MAXTWO >= tSize)
@@ -744,10 +761,10 @@ void *gtm_malloc(size_t size)	/* Note renamed to gtm_malloc_dbg when included in
 				memcpy(uStor->headMarker, markerChar, SIZEOF(uStor->headMarker));
 				trailerMarker = (unsigned char *)&uStor->userStorage.userStart + size;	/* Where to put trailer */
 				memcpy(trailerMarker, markerChar, SIZEOF(markerChar));	/* Small trailer */
-				if (GDL_SmInitAlloc & gtmDebugLevel)
+				if (GDL_SmInitAlloc & ydbDebugLevel)
 					/* Initialize the space we are allocating */
 					backfill((unsigned char *)&uStor->userStorage.userStart, size);
-				if (GDL_SmBackfill & gtmDebugLevel)
+				if (GDL_SmBackfill & ydbDebugLevel)
 				{	/* Use backfill method of after-allocation metadata */
 					backfill(trailerMarker + SIZEOF(markerChar),
 						 (uStor->realLen - size - hdrSize - SIZEOF(markerChar)));
@@ -772,7 +789,7 @@ void *gtm_malloc(size_t size)	/* Note renamed to gtm_malloc_dbg when included in
 			TRACE_MALLOC(retVal, size, smTn);
 			--gtmMallocDepth;
 			--fast_lock_count;
-			DEFERRED_EXIT_HANDLING_CHECK;
+			DEFERRED_SIGNAL_HANDLING_CHECK;
 			PTHREAD_MUTEX_UNLOCK_IF_NEEDED(was_holder);	/* release exclusive thread lock if needed */
 			return retVal;
 		} else  /* Storage mgmt has not been initialized */
@@ -789,7 +806,7 @@ void *gtm_malloc(size_t size)	/* Note renamed to gtm_malloc_dbg when included in
 			 * we should be be doing debug builds, drive the debug flavor of gtm_malloc instead which
 			 * will do its own initialization if it still needs to (see top of gtmSmInit() above).
 			 */
-			PRO_ONLY(if (0 != gtmDebugLevel) return (void *)gtm_malloc_dbg(size));
+			PRO_ONLY(if (0 != ydbDebugLevel) return (void *)gtm_malloc_dbg(size));
 			return (void *)gtm_malloc(size);
 		}
 #	ifndef DEBUG
@@ -812,14 +829,24 @@ void gtm_free(void *addr)	/* Note renamed to gtm_free_dbg when included in gtm_m
 	int 		sizeIndex, hdrSize, saveIndex, dqIndex, freedElemCnt;
 	gtm_msize_t	saveSize, allocSize;
 	boolean_t	was_holder;
+	intrpt_state_t	prev_intrpt_state;
 
+	if (ydbSystemMalloc)
+	{
+		if (&NullStruct.nullStr[0] == addr)
+			return;
+		DEFER_INTERRUPTS(INTRPT_IN_FUNC_WITH_MALLOC, prev_intrpt_state);
+		free(addr);
+		ENABLE_INTERRUPTS(INTRPT_IN_FUNC_WITH_MALLOC, prev_intrpt_state);
+		return;
+	}
 #	ifndef DEBUG
 	/* If we are not expanding for DEBUG, check now if DEBUG has been turned on.
 	 * If it has, we are in the wrong module Jack. This IF is structured so that
 	 * if this is the normal (optimized) case we will fall into the code and
 	 * handle the rerouting at the end.
 	 */
-	if (GDL_None == gtmDebugLevel)
+	if (GDL_None == ydbDebugLevel)
 	{
 #	endif
 		assertpro(gtmSmInitialized);	/* Storage must be init'd before can free anything */
@@ -851,7 +878,7 @@ void gtm_free(void *addr)	/* Note renamed to gtm_free_dbg when included in gtm_m
 			uStor = (storElem *)((unsigned long)addr - hdrSize);		/* Backup ptr to element header */
 			sizeIndex = uStor->queueIndex;
 #			ifdef DEBUG
-			if (GDL_SmInitAlloc & gtmDebugLevel)
+			if (GDL_SmInitAlloc & ydbDebugLevel)
 				/* Initialize the space we are de-allocating */
 				backfill((unsigned char *)&uStor->userStorage.userStart, uStor->allocLen);
 			TRACE_FREE(addr, uStor->allocLen, smTn);
@@ -865,7 +892,7 @@ void gtm_free(void *addr)	/* Note renamed to gtm_free_dbg when included in gtm_m
 			assert(0 == memcmp(uStor->headMarker, markerChar, SIZEOF(uStor->headMarker)));
 			trailerMarker = (unsigned char *)&uStor->userStorage.userStart + uStor->allocLen;/* Where trailer was put */
 			assert(0 == memcmp(trailerMarker, markerChar, SIZEOF(markerChar)));
-			if (GDL_SmChkAllocBackfill & gtmDebugLevel)
+			if (GDL_SmChkAllocBackfill & ydbDebugLevel)
 			{	/* Use backfill check method for after-allocation metadata */
 				assert(backfillChk(trailerMarker + SIZEOF(markerChar),
 						   (uStor->realLen - uStor->allocLen - hdrSize - SIZEOF(markerChar))));
@@ -922,7 +949,7 @@ void gtm_free(void *addr)	/* Note renamed to gtm_free_dbg when included in gtm_m
 				}
 #				ifdef DEBUG
 				/* Backfill entire block being freed so usage of it will cause problems */
-				if (GDL_SmBackfill & gtmDebugLevel)
+				if (GDL_SmBackfill & ydbDebugLevel)
 					backfill((unsigned char *)uStor + hdrSize, TwoTable[sizeIndex] - hdrSize);
 #				endif
 				ENQUEUE_STOR_ELEM(free, sizeIndex, uStor);
@@ -967,14 +994,15 @@ void gtm_free(void *addr)	/* Note renamed to gtm_free_dbg when included in gtm_m
 				allocSize = saveSize = uStor->realLen;
 #				ifdef DEBUG
 				/* Backfill entire block being freed so usage of it will cause problems */
-				if (GDL_SmBackfill & gtmDebugLevel)
+				if (GDL_SmBackfill & ydbDebugLevel)
 					backfill((unsigned char *)uStor, allocSize);
 #				endif
 				FREE(allocSize, uStor);
 				totalRmalloc -= allocSize;
 				totalAlloc -= allocSize;
 			}
-		}
+		} else
+			saveSize = 0; /* 4SCA: Using the null struct so this isn't important */
 #		ifdef DEBUG
 		/* Make trace entry for this free */
 		++smLastFreeIndex;
@@ -997,7 +1025,7 @@ void gtm_free(void *addr)	/* Note renamed to gtm_free_dbg when included in gtm_m
 		gtm_free_dbg(addr);
 	}
 #	endif
-	DEFERRED_EXIT_HANDLING_CHECK;
+	DEFERRED_SIGNAL_HANDLING_CHECK;
 }
 
 /* When an out-of-storage type error is encountered, besides releasing our memory reserve, we also
@@ -1049,7 +1077,7 @@ void raise_gtmmemory_error(void)	/* Note renamed to raise_gtmmemory_error_dbg wh
 	 * clarity, we put the redirecting call at the bottom of the if-else block to
 	 * avoid disrupting the instruction pipeline.
 	 */
-        if (GDL_None == gtmDebugLevel)
+        if (GDL_None == ydbDebugLevel)
         {
 #	endif
 		if (NULL != (addr = (void *)outOfMemoryMitigation)	/* Note assignment */
@@ -1068,7 +1096,7 @@ void raise_gtmmemory_error(void)	/* Note renamed to raise_gtmmemory_error_dbg wh
 		} else
 			--gtmMallocDepth;
 		--fast_lock_count;
-		DEFERRED_EXIT_HANDLING_CHECK;
+		DEFERRED_SIGNAL_HANDLING_CHECK;
 		was_holder = TRUE; /* caller (gtm_malloc/gtm_free) got the thread lock so release it before the rts_error */
 		PTHREAD_MUTEX_UNLOCK_IF_NEEDED(was_holder);	/* release exclusive thread lock if needed */
 		rts_error_csa(CSA_ARG(NULL) VARLSTCNT(5) ERR_MEMORY, 2, gtmMallocErrorSize, gtmMallocErrorCallerid,
@@ -1091,6 +1119,8 @@ size_t gtm_bestfitsize(size_t size)
 	int	hdrSize, sizeIndex;
 
 	assert(IS_PTHREAD_LOCKED_AND_HOLDER);
+	if (ydbSystemMalloc)
+		return size;
 #	ifndef DEBUG
 	/* If we are not expanding for DEBUG, check now if DEBUG has been turned on.
 	 * If it has, we are in the wrong module Jack. This IF is structured so that
@@ -1103,7 +1133,7 @@ size_t gtm_bestfitsize(size_t size)
 	 * clarity, we put the redirecting call at the bottom of the if-else block to
 	 * avoid disrupting the instruction pipeline.
 	 */
-        if (GDL_None == gtmDebugLevel)
+        if (GDL_None == ydbDebugLevel)
         {
 #	endif
 		hdrSize = OFFSETOF(storElem, userStorage);		/* Size of storElem header */
@@ -1253,6 +1283,8 @@ void verifyFreeStorage(void)
 	uint4		i;
 	int		hdrSize;
 
+	if (ydbSystemMalloc)
+		return;
 	assert(IS_PTHREAD_LOCKED_AND_HOLDER);
 	hdrSize = OFFSETOF(storElem, userStorage);
 	/* Looping for each free queue */
@@ -1267,7 +1299,7 @@ void verifyFreeStorage(void)
 			assert(Free == uStor->state);							/* Verify state */
 			assert(0 == memcmp(uStor->headMarker, markerChar, SIZEOF(uStor->headMarker)));	/* Vfy metadata marker */
 			assert((MAXINDEX < i) || (extent_used > uStor->extHdrOffset));
-			if (GDL_SmChkFreeBackfill & gtmDebugLevel)
+			if (GDL_SmChkFreeBackfill & ydbDebugLevel)
 				/* Use backfill check method for verifying freed storage is untouched */
 				assert(backfillChk((unsigned char *)uStor + hdrSize, TwoTable[i] - hdrSize));
 		}
@@ -1284,6 +1316,8 @@ void verifyAllocatedStorage(void)
 	uint4		i;
 	int		hdrSize;
 
+	if (ydbSystemMalloc)
+		return;
 	assert(IS_PTHREAD_LOCKED_AND_HOLDER);
 	hdrSize = OFFSETOF(storElem, userStorage);
 	/* Looping for MAXINDEX+1 will check the real-malloc'd chains too */
@@ -1301,7 +1335,7 @@ void verifyAllocatedStorage(void)
 			trailerMarker = (unsigned char *)&uStor->userStorage.userStart+uStor->allocLen;/* Where  trailer was put */
 			assert(0 == memcmp(trailerMarker, markerChar, SIZEOF(markerChar)));
 			assert((MAXINDEX < i) || (extent_used > uStor->extHdrOffset));
-			if (GDL_SmChkAllocBackfill & gtmDebugLevel)
+			if (GDL_SmChkAllocBackfill & ydbDebugLevel)
 				/* Use backfill check method for after-allocation metadata */
 				assert(backfillChk(trailerMarker + SIZEOF(markerChar),
 					(uStor->realLen - uStor->allocLen - hdrSize - SIZEOF(markerChar))));
@@ -1321,7 +1355,7 @@ void printMallocInfo(void)
 	int 		i, j;
 
 	assert(IS_PTHREAD_LOCKED_AND_HOLDER);
-	if (GDL_SmStats & gtmDebugLevel)
+	if (GDL_SmStats & ydbDebugLevel)
 	{
 		FPRINTF(stderr, "\nMalloc small storage performance:\n");
 		FPRINTF(stderr,
@@ -1347,7 +1381,7 @@ void printMallocInfo(void)
 			}
 		}
 	}
-	if (GDL_SmDumpTrace & gtmDebugLevel)
+	if (GDL_SmDumpTrace & ydbDebugLevel)
 	{
 		FPRINTF(stderr, "\nMalloc Storage Traceback:   gtm_malloc() addr: 0x"gmaAdr"\n", &gtm_malloc);
 		FPRINTF(stderr, "TransNumber "gmaFill" AllocAddr        Size "gmaFill" CallerAddr\n");
@@ -1388,7 +1422,7 @@ void printMallocDump(void)
 	int		i;
 
 	assert(IS_PTHREAD_LOCKED_AND_HOLDER);
-	if (GDL_SmDump & gtmDebugLevel)
+	if (GDL_SmDump & ydbDebugLevel)
 	{
 		FPRINTF(stderr, "\nMalloc Storage Dump:   gtm_malloc() addr: 0x"gmaAdr"\n", &gtm_malloc);
 		FPRINTF(stderr, gmaFill"Malloc Addr  "gmaFill"   Alloc From     Malloc Size   Trans Number\n");

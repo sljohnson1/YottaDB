@@ -1,9 +1,9 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2017 Fidelity National Information	*
+ * Copyright (c) 2001-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -142,30 +142,11 @@ static uint4 jnl_sub_write_attempt(jnl_private_control *jpc, unsigned int *lcnt,
 		}
 		break;
 	}
-	/* Note: If phase2 jnl commits are still in progress outside of crit, we cannot accurately compare "jb->free" vs
-	 * "jb->freeaddr" (because a phase2 commit could be updating them as part of the UPDATE_JBP_RSRV_FREEADDR macro).
-	 * "jb->phase2_commit_index1 == jb->phase2_commit_index2" indicates no phase2 commits are in progress.
-	 * In that case, go ahead with the free/freeaddr check.
-	 */
-	rsrv_freeaddr = jb->rsrv_freeaddr;
-	dskaddr = jb->dskaddr;
-	phase2_commit_index1 = jb->phase2_commit_index1;
-	SHM_READ_MEMORY_BARRIER;	/* See "jnl_phase2_cleanup" for comment & corresponding SHM_WRITE_MEMORY_BARRIER */
-	freeaddr = jb->freeaddr;
-	free = jb->free;
-	if ((threshold > rsrv_freeaddr)
-		|| (csa->now_crit
-			&& ((dskaddr > freeaddr)
-				|| ((phase2_commit_index1 == jb->phase2_commit_index2) && ((free != (freeaddr % jb->size)))))))
-	{	/* threshold > jb->rsrv_freeaddr => somebody decremented jb->freeaddr after we computed threshold,
-		 *	OR jnl was switched (in which case we should not be holding crit)
-		 * jb->free != jb->freeaddr % jb->size => out of design condition
-		 * jb->dskaddr > jb->freeaddr => out of design condition, or jnl was switched (again we should not be in crit)
+	if (csa->now_crit && (jb->dskaddr > jb->freeaddr))
+	{	/* jb->dskaddr > jb->freeaddr => out of design condition if we have crit.
+		 * If we don't have crit, a journal switch could have occurred, so not an error condition.
 		 */
 		status = ERR_JNLCNTRL;
-		assert((dskaddr > freeaddr) && gtm_white_box_test_case_enabled
-				&& (WBTEST_JNL_FILE_LOST_DSKADDR == gtm_white_box_test_case_number)
-			|| (JNL_FILE_SWITCHED(jpc) && !was_crit));
 	}
 	return status;
 }
@@ -269,9 +250,9 @@ uint4 jnl_write_attempt(jnl_private_control *jpc, uint4 threshold)
 				grab_crit(jpc->region);	/* jnl_write_attempt has an assert about have_crit that this relies on */
 			}
 			jnlfile_lost = FALSE;
-			assert((gtm_white_box_test_case_enabled
-				&& (WBTEST_JNL_FILE_LOST_DSKADDR == gtm_white_box_test_case_number))
-			       || TREF(gtm_test_fake_enospc) || WBTEST_ENABLED(WBTEST_RECOVER_ENOSPC));
+			assert((ydb_white_box_test_case_enabled
+				&& (WBTEST_JNL_FILE_LOST_DSKADDR == ydb_white_box_test_case_number))
+			       || TREF(ydb_test_fake_enospc) || WBTEST_ENABLED(WBTEST_RECOVER_ENOSPC));
 			if (JNL_ENABLED(csa->hdr))
 			{	/* We ignore the return value of jnl_file_lost() since we always want to report the journal
 				 * error, whatever its error handling method is.  Also, an operator log will be sent by some

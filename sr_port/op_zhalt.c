@@ -31,10 +31,19 @@
 #include "error.h"
 #include "gtmmsg.h"
 #include "create_fatal_error_zshow_dmp.h"
+#include "stack_frame.h"
+#include "gdsroot.h"
+#include "gtm_facility.h"
+#include "fileinfo.h"
+#include "gdsbt.h"
+#include "gdsfhead.h"
+#include "gv_trigger.h"
+#include "gtm_trigger.h"
 
 GBLREF	int		mumps_status;
 GBLREF	int		process_exiting;
 GBLREF	int4		exi_condition;
+GBLREF	stack_frame	*frame_pointer;
 
 LITREF	gtmImageName	gtmImageNames[];
 
@@ -71,6 +80,18 @@ void op_zhalt(int4 retcode, boolean_t is_zhalt)
 			DBG_MARK_STRINGPOOL_UNUSABLE;	/* No GCs expected between now and when this is fetched in goframes() */
 		}
 		op_zg1(0);			/* Unwind everything back to beginning of this call-in level */
+		/* The "op_zg1" would not return in most cases. An exception is if this call-in environment was created by
+		 * simpleAPI and a trigger was invoked by say a "ydb_set_s" call and an error occured inside the trigger
+		 * environment which resulted in an error trap that did a "halt/zhalt". In this case, the current frame_pointer
+		 * would be a trigger base frame that needs to be unwound using special code (see goframes.c for similar code).
+		 */
+		assert(SFT_TRIGR & frame_pointer->type);
+		if (SFT_TRIGR & frame_pointer->type)
+			gtm_trigger_fini(TRUE, TRUE);
+		/* Assert that we unwound to a call-in base frame */
+		assert(SFT_CI & frame_pointer->type);
+		/* We need to return to "ydb_ci[p]". Use MUM_TSTART */
+		MUM_TSTART;
 		assertpro(FALSE);		/* Should not return */
 		return;				/* Previous call does not return so this is for the compiler */
 	}
@@ -91,7 +112,7 @@ void op_zhalt(int4 retcode, boolean_t is_zhalt)
 				halt_time = cur_time;
 			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(3) ERR_RESTRICTEDOP, 1, is_zhalt ? "ZHALT" : "HALT");
 		}
-		/* if 2nd in less than SAFE_iNTERVAL, give FATAL message & GTM_FATAL file, but no core, to stop nasty loops */
+		/* if 2nd in less than SAFE_iNTERVAL, give FATAL message & YDB_FATAL file, but no core, to stop nasty loops */
 		gtm_putmsg_csa(CSA_ARG(NULL) VARLSTCNT(3) MAKE_MSG_SEVERE(ERR_RESTRICTEDOP), 1, is_zhalt ? "ZHALT" : "HALT");
 		if (IS_GTM_IMAGE)
 		{
@@ -112,7 +133,7 @@ void op_zhalt(int4 retcode, boolean_t is_zhalt)
 	} else
 		assert(IS_GTM_IMAGE);
 #	endif
-	process_exiting = TRUE;			/* do a little dance to leave a GTM_FATAL file but no core file */
+	process_exiting = TRUE;			/* do a little dance to leave a YDB_FATAL file but no core file */
 	if (retcode && !is_zhalt)
 		EXIT(0); 			/* unless this is a op_dmode or dm_read exit */
 	create_fatal_error_zshow_dmp(MAKE_MSG_SEVERE(ERR_RESTRICTEDOP));

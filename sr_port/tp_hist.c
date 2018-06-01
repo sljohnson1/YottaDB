@@ -3,7 +3,7 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
- * Copyright (c) 2017 YottaDB LLC. and/or its subsidiaries.	*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
  * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
@@ -102,6 +102,7 @@ enum cdb_sc tp_hist(srch_hist *hist1)
 	cache_rec_ptr_t		cr;
 	sgmnt_addrs		*csa;
 	node_local_ptr_t	cnl;
+	int4			tprestart_syslog_delta;
 #	ifdef DEBUG
 	boolean_t		wc_blocked;
 	boolean_t		ready2signal_gvundef_lcl;
@@ -146,9 +147,10 @@ enum cdb_sc tp_hist(srch_hist *hist1)
 	 * tree and accessing the buffers, they were guaranteed to have seen a consistent state of the database.
 	 */
 	SHM_READ_MEMORY_BARRIER;
+	tprestart_syslog_delta = TREF(tprestart_syslog_delta);	/* take a local copy to speed up multiple uses below */
 	for (hist = &gvt->hist; hist != NULL && cdb_sc_normal == status; hist = (hist == &gvt->hist) ? hist1 : NULL)
 	{	/* this loop execute once or twice: 1st for gv_target and then for hist1, if any */
-		if (TREF(tprestart_syslog_delta))
+		if (tprestart_syslog_delta)
 			n_blkmods = n_pvtmods = 0;
 		for (t1 = hist->h; HIST_TERMINATOR != (blk = t1->blk_num); t1++)
 		{
@@ -210,15 +212,17 @@ enum cdb_sc tp_hist(srch_hist *hist1)
 					if ((NULL == cse) || !cse->recompute_list_head || cse->write_type)
 					{
 						assert((CDB_STAGNATE > t_tries)
-							|| (gtm_white_box_test_case_enabled
-							    && (WBTEST_TP_HIST_CDB_SC_BLKMOD == gtm_white_box_test_case_number)));
-						if (TREF(tprestart_syslog_delta))
+							|| (ydb_white_box_test_case_enabled
+							    && (WBTEST_TP_HIST_CDB_SC_BLKMOD == ydb_white_box_test_case_number)));
+						if (tprestart_syslog_delta)
 						{
 							n_blkmods++;
 							if (t2->cse || t1->cse)
 								n_pvtmods++;
+							#ifdef DEBUG
 							if (1 != n_blkmods)
 								continue;
+							#endif
 						}
 						TP_TRACE_HIST_MOD(t2->blk_num, t2->blk_target, tp_blkmod_tp_hist,
 							cs_addrs->hdr, t2->tn, ((blk_hdr_ptr_t)t2->buffaddr)->tn, t2->level);
@@ -483,8 +487,8 @@ enum cdb_sc tp_hist(srch_hist *hist1)
 		 */
 		status = cdb_sc_wcs_recover;
 	}
-	/* If validation has succeeded, assert that if gtm_gvundef_fatal is non-zero, then we better not signal a GVUNDEF */
-	assert((cdb_sc_normal != status) || !TREF(gtm_gvundef_fatal) || !ready2signal_gvundef_lcl);
+	/* If validation has succeeded, assert that if ydb_gvundef_fatal is non-zero, then we better not signal a GVUNDEF */
+	assert((cdb_sc_normal != status) || !TREF(ydb_gvundef_fatal) || !ready2signal_gvundef_lcl);
 	ADD_TO_GVT_TP_LIST(gvt, RESET_FIRST_TP_SRCH_STATUS_FALSE);	/* updates gvt->read_local_tn & adds gvt to gvt_tp_list
 									 * (all only if needed) */
 	CWS_RESET;

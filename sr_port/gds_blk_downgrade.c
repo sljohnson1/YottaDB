@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2005-2016 Fidelity National Information	*
+ * Copyright (c) 2005-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -26,7 +29,6 @@
 #include "v15_gdsfhead.h"
 #include "io.h"
 #include "iottdef.h"
-#include "iomtdef.h"
 #include "gds_blk_downgrade.h"
 
 #define SPACE_NEEDED (SIZEOF(blk_hdr) - SIZEOF(v15_blk_hdr))
@@ -53,8 +55,8 @@ void gds_blk_downgrade(v15_blk_hdr_ptr_t gds_blk_trg, blk_hdr_ptr_t gds_blk_src)
 		 * See comment in wcs_wtstart.c against similar assert (as below) for when this is possible.
 		 */
 		assert(0 == bsiz);
-		assert(gtm_white_box_test_case_enabled
-			&& (WBTEST_CRASH_SHUTDOWN_EXPECTED == gtm_white_box_test_case_number));
+		assert(ydb_white_box_test_case_enabled
+			&& (WBTEST_CRASH_SHUTDOWN_EXPECTED == ydb_white_box_test_case_number));
 		return;
 	}
 	assert(GDSVCURR == gds_blk_src->bver);

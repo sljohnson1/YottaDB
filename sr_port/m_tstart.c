@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2001-2015 Fidelity National Information 	*
+ * Copyright (c) 2001-2015 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2017-2018 YottaDB LLC. and/or its subsidiaries.*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -22,6 +25,7 @@
 #include "advancewindow.h"
 #include "cmd.h"
 #include "namelook.h"
+#include "op_tstart.h"
 
 static readonly nametabent tst_param_names[] =
 {
@@ -64,7 +68,7 @@ int m_tstart(void)
 		advancewindow();
 		break;
 	case TK_ASTERISK:
-		count = -2;		/* indicates save all variables */
+		count = ALLLOCAL;	/* indicates save all variables */
 		advancewindow();
 		break;
 	case TK_ATSIGN:

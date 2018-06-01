@@ -1,7 +1,10 @@
 /****************************************************************
  *								*
- * Copyright (c) 2009-2016 Fidelity National Information	*
+ * Copyright (c) 2009-2018 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
+ *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -16,7 +19,7 @@
 #include "gtmxc_types.h"
 #include "gtmimagename.h"
 #include "have_crit.h"
-#include "deferred_signal_handler.h"
+#include "deferred_exit_handler.h"
 #include "wbox_test_init.h"
 #include "gtmmsg.h"
 #include "error.h"					/* for MAKE_MSG_WARNING macro */
@@ -113,8 +116,8 @@ error_def(ERR_CRYPTOPFAILED);
 
 #define CORE_ON_CRYPTOPFAILED													\
 MBSTART {															\
-	/* if we are not expecting nor forcing CRYPTOPFAILED get a core for analysis */						\
-	if (!WBTEST_ENABLED(WBTEST_EXPECT_CRYPTOPFAILED) && !ENCR_WBOX_ENABLED)							\
+	/* Except for white box testing capture CRYPTOPFAILED cores for analysis */						\
+	if (!ENCR_WBOX_ENABLED)													\
 		gtm_fork_n_core();												\
 } MBEND
 
@@ -161,8 +164,8 @@ MBSTART {															\
 
 #define ENCR_INITIALIZED 				gtmcrypt_initialized
 
-#define ENCR_WBOX_ENABLED				(gtm_white_box_test_case_enabled 					\
-				 				&& (WBTEST_ENCRYPT_INIT_ERROR == gtm_white_box_test_case_number))
+#define ENCR_WBOX_ENABLED				(ydb_white_box_test_case_enabled 					\
+				 				&& (WBTEST_ENCRYPT_INIT_ERROR == ydb_white_box_test_case_number))
 
 #define ASSERT_ENCRYPTION_INITIALIZED			assert(ENCR_INITIALIZED || ENCR_WBOX_ENABLED)
 
@@ -348,7 +351,7 @@ MBSTART {															\
 					gtmcrypt_badhash_size_msg = (char *)malloc(1024);					\
 				SNPRINTF(gtmcrypt_badhash_size_msg, 1023, "Specified symmetric key hash has "			\
 					"length %d, which is different from the expected hash length %d",			\
-					hash_string.length, GTMCRYPT_HASH_LEN);							\
+					(int)hash_string.length, GTMCRYPT_HASH_LEN);						\
 				RC = SET_CRYPTERR_MASK(ERR_CRYPTHASHGENFAILED);							\
 			} else													\
 			{	/* Note that the copy is not NULL-terminated. */						\
