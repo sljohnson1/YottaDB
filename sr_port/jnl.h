@@ -172,6 +172,9 @@ error_def(ERR_JNLENDIANLITTLE);
 					 * written record. This is necessary for some callers (e.g. update process writing
 					 * an epoch for the -noresync startup case).
 					 */
+#define	WCSFLU_RET_IF_OFRZ     512	/* Return if an online freeze is detected (instead of waiting indefinitely for freeze
+					 * to be lifted off in WAIT_FOR_REGION_TO_UNCHILL macro).
+					 */
 /* options for error_on_jnl_file_lost */
 #define JNL_FILE_LOST_TURN_OFF	0	/* Turn off journaling. */
 #define JNL_FILE_LOST_ERRORS	1	/* Throw an rts_error. */
@@ -1847,7 +1850,7 @@ void	jnl_prc_vector(jnl_process_vector *pv);
 void	jnl_send_oper(jnl_private_control *jpc, uint4 status);
 uint4	cre_jnl_file(jnl_create_info *info);
 uint4 	cre_jnl_file_common(jnl_create_info *info, char *rename_fn, int rename_fn_len);
-void	cre_jnl_file_intrpt_rename(sgmnt_addrs *csa);
+uint4	cre_jnl_file_intrpt_rename(sgmnt_addrs *csa);
 void	jfh_from_jnl_info (jnl_create_info *info, jnl_file_header *header);
 uint4	jnl_ensure_open(gd_region *reg, sgmnt_addrs *csa);
 void	set_jnl_info(gd_region *reg, jnl_create_info *set_jnl_info);
