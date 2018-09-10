@@ -16,6 +16,11 @@
 #								#
 #################################################################
 
+# ---------------------------------------------------------------------------------------------------------------------
+# For the latest version of this script, run the following command
+#	wget https://gitlab.com/YottaDB/DB/YDB/raw/master/sr_unix/ydbinstall.sh
+# ---------------------------------------------------------------------------------------------------------------------
+#
 # This script automates the installation of YottaDB as much as possible,
 # to the extent of attempting to download the distribution file.
 # Current limitation is GNU/Linux on x86 (32- & 64-bit) architectures
@@ -24,33 +29,27 @@
 # NOTE: This script requires the GNU wget program to download
 # distribution files that are not on the local file system.
 
-# Revision history
-#
-# 2011-02-15  0.01 K.S. Bhaskar - Initial version for internal use
-# 2011-02-20  0.02 K.S. Bhaskar - Mostly usable with enough features for first Beta test
-# 2011-02-21  0.03 K.S. Bhaskar - Deal with case of no group bin, bug fixes, download from FTP site, other platforms
-# 2011-02-28  0.04 K.S. Bhaskar - Use which to get locations of id and grep, more bug fixes
-# 2011-03-05  0.05 K.S. Bhaskar - Through V5.4-001 group only needed if execution restricted to a group
-# 2011-03-08  0.06 K.S. Bhaskar - Make it work when bundled with GT.M V5.4-002
-# 2011-03-10  0.10 K.S. Bhaskar - Incorporate review comments to bundle with V5.4-002 distribution
-# 2011-05-03  0.11 K.S. Bhaskar - Allow for letter suffix releases
-# 2011-10-25  0.12 K.S. Bhaskar - Support option to delete .o files on shared library platforms
-# 2014-08-13  0.13 K.S. Bhaskar - Add verbosity around getting latest version and tarball, if requested
-# 2015-10-13  0.14 GT.M Staff   - Fix a few minor bugs
-# 2017-07-16  0.15 Sam Habiel   - --yottadb or --distrib https://github.com/YottaDB/YottaDB to install YottaDB
-# 2017-08-12  0.16 Christopher Edwards - Default to YottaDB
-# 2017-10-xx  0.17 Narayanan Iyer - See git commit message for description of changes.
-#	Going forward, this script is maintained at https://github.com/YottaDB/YottaDB/blob/master/sr_unix/ydbinstall.sh
-#	and there is no revision history in this file.
-
 # Turn on debugging if set
 if [ "Y" = "$ydb_debug" ] ; then set -x ; fi
 
+check_if_util_exists()
+{
+	command -v $1 >/dev/null 2>&1 || { echo >&2 "Utility [$1] is needed by ydbinstall.sh but not found. Exiting."; exit 1; }
+}
+
+# Check all utilities that ydbinstall.sh will use and ensure they are present. If not error out at beginning.
+utillist="date id grep uname mktemp cut tr dirname chmod rm mkdir cat wget sed sort head basename ln gzip tar xargs sh cp"
+# Check all utilities that configure.gtc (which ydbinstall.sh calls) will additionally use and ensure they are present.
+# If not error out at beginning instead of erroring out midway during the install.
+utillist="$utillist ps file wc touch chown chgrp groups getconf awk expr locale install cc ld strip"
+for util in $utillist
+do
+	check_if_util_exists $util
+done
+
 # Initialization
 timestamp=`date +%Y%m%d%H%M%S`
-ydb_id=`which id`
-ydb_grep=`which grep`
-if [ -z "$USER" ] ; then USER=`$ydb_id -un` ; fi
+if [ -z "$USER" ] ; then USER=`id -un` ; fi
 
 # Functions
 dump_info()
@@ -136,11 +135,11 @@ help_exit()
     echo "version is defaulted from mumps file if one exists in the same directory as the installer"
     echo "This version must run as root."
     echo ""
-    echo "Example usages are (assumes latest YottaDB release is r1.22 and latest GT.M version is V6.3-003A)"
+    echo "Example usages are (assumes latest YottaDB release is r1.22 and latest GT.M version is V6.3-005)"
     echo "  ydbinstall.sh                          # installs latest YottaDB release (r1.22) at /usr/local/lib/yottadb/r122"
     echo "  ydbinstall.sh --utf8 default           # installs YottaDB release r1.22 with added support for UTF-8"
     echo "  ydbinstall.sh --installdir /r122 r1.22 # installs YottaDB r1.22 at /r122"
-    echo "  ydbinstall.sh --gtm                    # installs latest GT.M version (V6.3-003A) at /usr/local/lib/fis-gtm/V6.3-003A_x86_64"
+    echo "  ydbinstall.sh --gtm                    # installs latest GT.M version (V6.3-005) at /usr/local/lib/fis-gtm/V6.3-005_x86_64"
     echo ""
     exit 1
 }
@@ -155,6 +154,33 @@ mktmpdir()
         *) tmpdirname=`mktemp -d` ;;
     esac
     echo $tmpdirname
+}
+
+# This function is invoked whenever we detect an option that requires a value (e.g. --utf8) that is not
+# immediately followed by a =. In that case, the next parameter in the command line ($2) is the value.
+# We check if this parameter starts with a "--" as well and if so it denotes a different option and not a value.
+#
+# Input
+# -----
+# $1 for this function is the # of parameters remaining to be processed in command line
+# $2 for this function is the next parameter in the command line immediately after the current option (which has a -- prefix).
+#
+# Output
+# ------
+# returns 0 in case $2 is non-null and does not start with a "--"
+# returns 1 otherwise.
+#
+isvaluevalid()
+{
+	if [ 1 -lt "$1" ] ; then
+		# bash might have a better way for checking whether $2 starts with "--" than the grep done below
+		# but we want this script to run with sh so go with the approach that will work on all shells.
+		retval=`echo "$2" | grep -c '^--'`
+	else
+		# option (e.g. --utf8) is followed by no other parameters in the command line
+		retval=1
+	fi
+	echo $retval
 }
 
 # Defaults that can be over-ridden by command line options to follow
@@ -189,13 +215,13 @@ while [ $# -gt 0 ] ; do
     case "$1" in
         --build-type*) tmp=`echo $1 | cut -s -d = -f 2-`
             if [ -n "$tmp" ] ; then gtm_buildtype=$tmp
-            else if [ 1 -lt "$#" ] ; then gtm_buildtype=$2 ; shift
-                else echo "--buildtype needs a value" ; err_exit
+            else retval=`isvaluevalid $# $2` ; if [ "$retval" -eq 0 ] ; then gtm_buildtype=$2 ; shift
+                else echo "--build-type needs a value" ; err_exit
                 fi
             fi ;;
         --copyenv*) tmp=`echo $1 | cut -s -d = -f 2-`
             if [ -n "$tmp" ] ; then gtm_copyenv=$tmp
-            else if [ 1 -lt "$#" ] ; then gtm_copyenv=$2 ; shift
+            else retval=`isvaluevalid $# $2` ; if [ "$retval" -eq 0 ] ; then gtm_copyenv=$2 ; shift
                 else echo "--copyenv needs a value" ; err_exit
                 fi
             fi
@@ -203,7 +229,7 @@ while [ $# -gt 0 ] ; do
             shift ;;
         --copyexec*) tmp=`echo $1 | cut -s -d = -f 2-`
             if [ -n "$tmp" ] ; then gtm_copyexec=$tmp
-            else if [ 1 -lt "$#" ] ; then gtm_copyexec=$2 ; shift
+            else retval=`isvaluevalid $# $2` ; if [ "$retval" -eq 0 ] ; then gtm_copyexec=$2 ; shift
                 else echo "--copyexec needs a value" ; err_exit
                 fi
             fi
@@ -212,7 +238,7 @@ while [ $# -gt 0 ] ; do
         --debug) ydb_debug="Y" ; set -x ; shift ;;
         --distrib*) tmp=`echo $1 | cut -s -d = -f 2-`
             if [ -n "$tmp" ] ; then ydb_distrib=$tmp
-            else if [ 1 -lt "$#" ] ; then ydb_distrib=$2 ; shift
+            else retval=`isvaluevalid $# $2` ; if [ "$retval" -eq 0 ] ; then ydb_distrib=$2 ; shift
                 else echo "--distrib needs a value" ; err_exit
                 fi
             fi
@@ -224,7 +250,7 @@ while [ $# -gt 0 ] ; do
         --group-restriction) gtm_group_restriction="Y" ; shift ;; # must come before group*
         --group*) tmp=`echo $1 | cut -s -d = -f 2-`
             if [ -n "$tmp" ] ; then gtm_group=$tmp
-            else if [ 1 -lt "$#" ] ; then gtm_group=$2 ; shift
+            else retval=`isvaluevalid $# $2` ; if [ "$retval" -eq 0 ] ; then gtm_group=$2 ; shift
                 else echo "--group needs a value" ; err_exit
                 fi
             fi
@@ -232,7 +258,7 @@ while [ $# -gt 0 ] ; do
         --help) help_exit ;;
         --installdir*) tmp=`echo $1 | cut -s -d = -f 2-`
             if [ -n "$tmp" ] ; then ydb_installdir=$tmp
-            else if [ 1 -lt "$#" ] ; then ydb_installdir=$2 ; shift
+            else retval=`isvaluevalid $# $2` ; if [ "$retval" -eq 0 ] ; then ydb_installdir=$2 ; shift
                 else echo "--installdir needs a value" ; err_exit
                 fi
             fi
@@ -240,7 +266,7 @@ while [ $# -gt 0 ] ; do
         --keep-obj) gtm_keep_obj="Y" ; shift ;;
         --linkenv*) tmp=`echo $1 | cut -s -d = -f 2-`
             if [ -n "$tmp" ] ; then gtm_linkenv=$tmp
-            else if [ 1 -lt "$#" ] ; then gtm_linkenv=$2 ; shift
+            else retval=`isvaluevalid $# $2` ; if [ "$retval" -eq 0 ] ; then gtm_linkenv=$2 ; shift
                 else echo "--linkenv needs a value" ; err_exit
                 fi
             fi
@@ -248,7 +274,7 @@ while [ $# -gt 0 ] ; do
             shift ;;
         --linkexec*) tmp=`echo $1 | cut -s -d = -f 2-`
             if [ -n "$tmp" ] ; then gtm_linkexec=$tmp
-            else if [ 1 -lt "$#" ] ; then gtm_linkexec=$2 ; shift
+            else retval=`isvaluevalid $# $2` ; if [ "$retval" -eq 0 ] ; then gtm_linkexec=$2 ; shift
                 else echo "--linkexec needs a value" ; err_exit
                 fi
             fi
@@ -260,14 +286,14 @@ while [ $# -gt 0 ] ; do
         --ucaseonly-utils) gtm_lcase_utils="N" ; shift ;;
         --user*) tmp=`echo $1 | cut -s -d = -f 2-`
             if [ -n "$tmp" ] ; then gtm_user=$tmp
-            else if [ 1 -lt "$#" ] ; then gtm_user=$2 ; shift
+            else retval=`isvaluevalid $# $2` ; if [ "$retval" -eq 0 ] ; then gtm_user=$2 ; shift
                 else echo "--user needs a value" ; err_exit
                 fi
             fi
             shift ;;
         --utf8*) tmp=`echo $1 | cut -s -d = -f 2- | tr DEFAULT default`
             if [ -n "$tmp" ] ; then ydb_icu_version=$tmp
-            else if [ 1 -lt "$#" ] ; then ydb_icu_version=`echo $2 | tr DEFAULT default`; shift
+            else retval=`isvaluevalid $# $2` ; if [ "$retval" -eq 0 ] ; then ydb_icu_version=`echo $2 | tr DEFAULT default`; shift
                 else echo "--utf8 needs a value" ; err_exit
                 fi
             fi
@@ -293,35 +319,6 @@ case $gtm_hostos in
 esac
 gtm_shlib_support="Y"
 case ${gtm_hostos}_${gtm_arch} in
-    aix*) # no Source Forge dirname
-        gtm_arch="rs6000" # uname -m is not useful on AIX
-        gtm_ftp_dirname="aix"
-        ydb_flavor="rs6000"
-        gtm_install_flavor="RS6000" ;;
-    hpux_ia64) # no Source Forge dirname
-        gtm_ftp_dirname="hpux_ia64"
-        ydb_flavor="ia64"
-        gtm_install_flavor="IA64" ;;
-    linux_i586)
-        gtm_sf_dirname="GT.M-x86-Linux"
-        gtm_ftp_dirname="linux"
-        ydb_flavor="i586"
-        gtm_install_flavor="x86"
-        gtm_shlib_support="N" ;;
-    linux_i686)
-        gtm_sf_dirname="GT.M-x86-Linux"
-        gtm_ftp_dirname="linux"
-        ydb_flavor="i686"
-        gtm_install_flavor="x86"
-        gtm_shlib_support="N" ;;
-    linux_ia64) # no Source Forge dirname
-        gtm_ftp_dirname="linux_ia64"
-        ydb_flavor="ia64"
-        gtm_install_flavor="IA" ;;
-    linux_s390x) # no Source Forge dirname
-        gtm_ftp_dirname="linux_s390x"
-        ydb_flavor="s390x"
-        gtm_install_flavor="S390X" ;;
     linux_x8664)
         gtm_sf_dirname="GT.M-amd64-Linux"
         gtm_ftp_dirname="linux_x8664"
@@ -333,10 +330,6 @@ case ${gtm_hostos}_${gtm_arch} in
         ydb_flavor="armv7l" ;;
     linux_aarch64)
         ydb_flavor="aarch64" ;;
-    solaris_sparc) # no Source Forge dirname
-        gtm_ftp_dirname="sun"
-        ydb_flavor="sparc"
-        gtm_install_flavor="SPARC" ;;
     *) echo Architecture `uname -o` on `uname -m` not supported by this script ; err_exit ;;
 esac
 
@@ -349,7 +342,8 @@ if [ -z "$ydb_version" ] ; then
         chmod +x $ydb_dist/mumps
         tmp=`mktmpdir`
         ydb_routines="$tmp($ydb_dist)" ; export ydb_routines
-        ydb_version=`$ydb_dist/mumps -run %XCMD 'write $piece($zyrelease," ",2)'`
+        ydb_version=`$ydb_dist/mumps -run %XCMD 'write $piece($zyrelease," ",2)' 2>&1`
+	if [ $? -gt 0 ] ; then echo >&2 "$ydb_dist/mumps -run %XCMD 'write $piece($zyrelease," ",2)' failed with output $ydb_version"; exit 1; fi
         rm -rf $tmp
     fi
 fi
@@ -361,7 +355,7 @@ fi
 
 # See if YottaDB version can be determined from meta data
 if [ -z "$ydb_distrib" ] ; then
-    ydb_distrib="https://api.github.com/repos/YottaDB/YottaDB/"
+    ydb_distrib="https://gitlab.com/api/v4/projects/7957109/repository/tags"
 fi
 if [ "Y" = "$gtm_gtm" ] ; then
     ydb_distrib="http://sourceforge.net/projects/fis-gtm"
@@ -392,13 +386,18 @@ if [ -z "$ydb_version" -o "latest" = "$latest" ] ; then
                 ydb_version=`cat ${gtm_tmpdir}/latest`
             else echo Unable to determine YottaDB/GT.M version ; err_exit
             fi ;;
-        https://api.github.com/repos/YottaDB/YottaDB* | https://github.com/YottaDB/YottaDB*)
+        https://gitlab.com/api/*)
             if [ "Y" = "$gtm_verbose" ] ; then
-                echo wget https://api.github.com/repos/YottaDB/YottaDB/releases/latest to determine latest version
+                echo wget ${ydb_distrib} to determine latest version
                 echo Check proxy settings if wget hangs
             fi
-            if { wget $wget_flags $gtm_tmpdir https://api.github.com/repos/YottaDB/YottaDB/releases/latest 2>&1 1>${gtm_tmpdir}/wget_latest.log ; } ; then
-                ydb_version=`grep "tag_name" ${gtm_tmpdir}/latest | cut -d'"' -f4`
+            if { wget $wget_flags $gtm_tmpdir ${ydb_distrib} 2>&1 1>${gtm_tmpdir}/wget_latest.log ; } ; then
+	        # Find latest mainline YottaDB release by searching for all "tag_name"s and reverse sorting them based on the
+		# release number and taking the first line (which is the most recent release). Note that the sorting will take care
+		# of the case if a patch release for a prior version is released after the most recent mainline release
+		# (e.g. r1.12 as a patch for r1.10 is released after r1.22 is released). Not sorting will cause r1.12
+		# (which will show up as the first line since it is the most recent release) to incorrectly show up as latest.
+                ydb_version=`sed 's/,/\n/g' ${gtm_tmpdir}/tags | grep tag_name | sort -r | head -1 | cut -d'"' -f6`
             fi ;;
         *)
             if [ -f ${ydb_distrib}/latest ] ; then
@@ -428,15 +427,15 @@ else
                 	2>&1 1>${gtm_tmpdir}/wget_dist.log ; } ; then
                 echo Unable to download GT.M distribution $ydb_filename ; err_exit
             fi ;;
-        https://api.github.com/repos/YottaDB/YottaDB* | https://github.com/YottaDB/YottaDB*)
+        https://gitlab.com/api/*)
             if [ "Y" = "$gtm_verbose" ] ; then
-                echo wget https://api.github.com/repos/YottaDB/YottaDB/releases/tags/${ydb_version} and parse to download tarball
+                echo wget ${ydb_distrib}/${ydb_version} and parse to download tarball
                 echo Check proxy settings if wget hangs
             fi
-            if { wget $wget_flags $gtm_tmpdir https://api.github.com/repos/YottaDB/YottaDB/releases/tags/${ydb_version} 2>&1 1>${gtm_tmpdir}/wget_dist.log ;} ; then
+            if { wget $wget_flags $gtm_tmpdir ${ydb_distrib}/${ydb_version} 2>&1 1>${gtm_tmpdir}/wget_dist.log ;} ; then
 		# There might be multiple binary tarballs of YottaDB (for various architectures & platforms).
 		# If so, choose the one that corresponds to the current host.
-		yottadb_download_urls=`grep "browser_download_url" ${gtm_tmpdir}/${ydb_version} | cut -d'"' -f4`
+		yottadb_download_urls=`sed 's,/uploads/,\n&,g' ${gtm_tmpdir}/${ydb_version} | grep "^/uploads/" | cut -d')' -f1`
 		# Determine current host's architecture
 		arch=`uname -m | tr -d '_'`
 		# Determine current host's OS. We expect the OS name in the tarball.
@@ -464,10 +463,10 @@ else
 				fi
 			fi
 			case $ydb_filename in
-				*"$platform"*) ;;			# If tarball has current architecture in its name, consider it
-				*)             continue ;;		# else move on to next tarball
+				*"$platform"*) ;;		# If tarball has current architecture in its name, consider it
+				*)             continue ;;	# else move on to next tarball
 			esac
-			yottadb_download_url=$fullfilename
+			yottadb_download_url="https://gitlab.com/YottaDB/DB/YDB${fullfilename}"
 			break					# Now that we found one tarball, stop looking at other choices
 		done
 		if [ $yottadb_download_url = "" ]; then echo Unable to find YottaDB tarball for ${ydb_version} $platform $arch ; err_exit; fi
@@ -496,15 +495,15 @@ fi
 if [ "Y" = "$gtm_verbose" ] ; then echo Downloaded and unpacked YottaDB/GT.M distribution ; dump_info ; fi
 
 # Check installation settings & provide defaults as needed
-tmp=`$ydb_id -un`
+tmp=`id -un`
 if [ -z "$gtm_user" ] ; then gtm_user=$tmp
-else if [ "$gtm_user" != "`$ydb_id -un $gtm_user`" ] ; then
+else if [ "$gtm_user" != "`id -un $gtm_user`" ] ; then
     echo $gtm_user is a non-existent user ; err_exit
     fi
 fi
 if [ "root" = $tmp ] ; then
-    if [ -z "$gtm_group" ] ; then gtm_group=`$ydb_id -gn`
-    else if [ "root" != "$gtm_user" -a "$gtm_group" != "`$ydb_id -Gn $gtm_user | xargs -n 1 | $ydb_grep $gtm_group`" ] ; then
+    if [ -z "$gtm_group" ] ; then gtm_group=`id -gn`
+    else if [ "root" != "$gtm_user" -a "$gtm_group" != "`id -Gn $gtm_user | xargs -n 1 | grep $gtm_group`" ] ; then
         echo $gtm_user is not a member of $gtm_group ; err_exit
         fi
     fi
@@ -520,6 +519,11 @@ if [ -z "$ydb_installdir" ] ; then
          ydb_installdir=/usr/local/lib/yottadb/${ydbver}
     else ydb_installdir=/usr/local/lib/fis-gtm/${ydb_version}_${gtm_install_flavor}
     fi
+fi
+# if install directory is relative then need to make it absolute before passing it to configure
+# (or else configure will create a subdirectory under $tmpdir (/tmp/.*) and install YottaDB there which is not what we want)
+if [ `echo $ydb_installdir | grep -c '^/'` -eq 0 ] ; then
+    ydb_installdir=`pwd`/$ydb_installdir
 fi
 if [ -d "$ydb_installdir" -a "Y" != "$gtm_overwrite_existing" ] ; then
     echo $ydb_installdir exists and --overwrite-existing not specified ; err_exit
@@ -573,7 +577,7 @@ chmod +x configure.sh
 # Stop here if this is a dry run
 if [ "Y" = "$gtm_dryrun" ] ; then echo Installation prepared in $gtm_tmpdir ; exit ; fi
 
-./configure.sh <$gtm_configure_in 1> $gtm_tmpdir/configure_${timestamp}.out 2>$gtm_tmpdir/configure_${timestamp}.err
+sh -x ./configure.sh <$gtm_configure_in 1> $gtm_tmpdir/configure_${timestamp}.out 2>$gtm_tmpdir/configure_${timestamp}.err
 if [ $? -gt 0 ] ; then echo "configure.sh failed. Output follows"; cat $gtm_tmpdir/configure_${timestamp}.out $gtm_tmpdir/configure_${timestamp}.err ; exit 1; fi
 rm -rf $tmpdir	# Now that install is successful, remove temporary directory
 if [ "Y" = "$gtm_gtm" ] ; then

@@ -89,6 +89,7 @@
 #endif
 #include "libyottadb.h"
 #include "setup_error.h"
+#include "iottdef.h"
 
 GBLREF	boolean_t		created_core, dont_want_core, in_gvcst_incr, run_time;
 GBLREF	boolean_t		ztrap_explicit_null;		/* whether $ZTRAP was explicitly set to NULL in this frame */
@@ -293,15 +294,22 @@ CONDITION_HANDLER(mdb_condition_handler)
 	MDB_START;
 	assert(FALSE == in_gvcst_incr);	/* currently there is no known case where this can be TRUE at this point */
 	in_gvcst_incr = FALSE;	/* reset this just in case gvcst_incr/gvcst_put failed to do a good job of resetting */
-	if ((SUCCESS != SEVERITY) && (INFO != SEVERITY))
-	{
-		inctn_opcode = inctn_invalid_op;
-		/* Ideally merge should have a condition handler to reset followings, but generated code can call other routines
-		 * during MERGE command (MERGE command invokes multiple op-codes depending on source vs target). So it is not
-		 * easy to establish a condition handler there. Easy solution is following one line code.
-		 */
-		NULLIFY_MERGE_ZWRITE_CONTEXT;
-	}
+	inctn_opcode = inctn_invalid_op;
+	/* Ideally merge should have a condition handler to reset followings, but generated code can call other routines
+	 * during MERGE command (MERGE command invokes multiple op-codes depending on source vs target). So it is not
+	 * easy to establish a condition handler there. Easy solution is following one line code.
+	 */
+	NULLIFY_MERGE_ZWRITE_CONTEXT;
+	/* If a function like "dm_read" is erroring out after having done a "setterm", but before doing the "resetterm"
+	 * do that cleanup here. There are a few exceptions. The only one currently is a job interrupt in which case
+	 * it is possible we are in direct mode read or a READ command that was interrupted by the job interrupt. In that
+	 * case, if we do a resetterm(), it is possible for keystroke(s) the user enters while the job interrupt is
+	 * processing to show up in the terminal (since resetterm will turn ECHO back on) but the direct-mode/READ command
+	 * routine is going to echo the same keystroke(s) once it gets control back from the job interrupt. This would
+	 * cause duplication of those keystrokes and confuse the user.
+	 */
+	if ((NULL != active_device) && ((int)ERR_JOBINTRRQST != SIGNAL))
+		RESETTERM_IF_NEEDED(active_device, EXPECT_SETTERM_DONE_FALSE);
 	if ((int)ERR_TPRETRY == SIGNAL)
 	{
 		lcl_error_frame = error_frame;
@@ -655,9 +663,9 @@ CONDITION_HANDLER(mdb_condition_handler)
 				 frame_pointer->type));
 			frame_pointer->mpc = restart_pc;
 			frame_pointer->ctxt = restart_ctxt;
-			frame_pointer->flags &= SSF_NORET_VIA_MUMTSTART_OFF;	/* Frame enterable now with mpc reset */
+			frame_pointer->flags &= SFF_NORET_VIA_MUMTSTART_OFF;	/* Frame enterable now with mpc reset */
 			GTMTRIG_ONLY(
-				DBGTRIGR((stderr, "mdb_condition_handler: disabling SSF_NORET_VIA_MUMTSTART_OFF (1) in frame "
+				DBGTRIGR((stderr, "mdb_condition_handler: disabling SFF_NORET_VIA_MUMTSTART_OFF (1) in frame "
 					  "0x"lvaddr"\n", frame_pointer)));
 			if (!(frame_pointer->type & SFT_DM))
 				dm_setup();
@@ -665,9 +673,9 @@ CONDITION_HANDLER(mdb_condition_handler)
 		{
 			frame_pointer->ctxt = GTM_CONTEXT(call_dm);
 			frame_pointer->mpc = CODE_ADDRESS(call_dm);
-			frame_pointer->flags &= SSF_NORET_VIA_MUMTSTART_OFF;	/* Frame enterable now with mpc reset */
+			frame_pointer->flags &= SFF_NORET_VIA_MUMTSTART_OFF;	/* Frame enterable now with mpc reset */
 			GTMTRIG_ONLY(
-				DBGTRIGR((stderr, "mdb_condition_handler: disabling SSF_NORET_VIA_MUMTSTART_OFF (1) in frame "
+				DBGTRIGR((stderr, "mdb_condition_handler: disabling SFF_NORET_VIA_MUMTSTART_OFF (1) in frame "
 					  "0x"lvaddr"\n", frame_pointer)));
 		} else
 		{
@@ -675,9 +683,9 @@ CONDITION_HANDLER(mdb_condition_handler)
 			IF_INDR_FRAME_CLEANUP_CACHE_ENTRY_AND_UNMARK(frame_pointer);
 			frame_pointer->ctxt = GTM_CONTEXT(pseudo_ret);
 			frame_pointer->mpc = CODE_ADDRESS(pseudo_ret);
-			frame_pointer->flags &= SSF_NORET_VIA_MUMTSTART_OFF;	/* Frame enterable now with mpc reset */
+			frame_pointer->flags &= SFF_NORET_VIA_MUMTSTART_OFF;	/* Frame enterable now with mpc reset */
 			GTMTRIG_ONLY(
-				DBGTRIGR((stderr, "mdb_condition_handler: disabling SSF_NORET_VIA_MUMTSTART_OFF (1) in frame "
+				DBGTRIGR((stderr, "mdb_condition_handler: disabling SFF_NORET_VIA_MUMTSTART_OFF (1) in frame "
 					  "0x"lvaddr"\n", frame_pointer)));
 		}
 		PRN_ERROR;
@@ -790,8 +798,8 @@ CONDITION_HANDLER(mdb_condition_handler)
 		{
 			frame_pointer->ctxt = GTM_CONTEXT(call_dm);
 			frame_pointer->mpc = CODE_ADDRESS(call_dm);
-			frame_pointer->flags &= SSF_NORET_VIA_MUMTSTART_OFF;	/* Frame enterable now with mpc reset */
-			GTMTRIG_ONLY(DBGTRIGR((stderr, "mdb_condition_handler: disabling SSF_NORET_VIA_MUMTSTART (2) in frame 0x"
+			frame_pointer->flags &= SFF_NORET_VIA_MUMTSTART_OFF;	/* Frame enterable now with mpc reset */
+			GTMTRIG_ONLY(DBGTRIGR((stderr, "mdb_condition_handler: disabling SFF_NORET_VIA_MUMTSTART (2) in frame 0x"
 					       lvaddr"\n", frame_pointer)));
 		} else
 		{
@@ -799,8 +807,8 @@ CONDITION_HANDLER(mdb_condition_handler)
 			IF_INDR_FRAME_CLEANUP_CACHE_ENTRY_AND_UNMARK(frame_pointer);
 			frame_pointer->ctxt = GTM_CONTEXT(pseudo_ret);
 			frame_pointer->mpc = CODE_ADDRESS(pseudo_ret);
-			frame_pointer->flags &= SSF_NORET_VIA_MUMTSTART_OFF;	/* Frame enterable now with mpc reset */
-			GTMTRIG_ONLY(DBGTRIGR((stderr, "mdb_condition_handler: disabling SSF_NORET_VIA_MUMTSTART (3) in frame 0x"
+			frame_pointer->flags &= SFF_NORET_VIA_MUMTSTART_OFF;	/* Frame enterable now with mpc reset */
+			GTMTRIG_ONLY(DBGTRIGR((stderr, "mdb_condition_handler: disabling SFF_NORET_VIA_MUMTSTART (3) in frame 0x"
 					       lvaddr"\n", frame_pointer)));
 		}
 		PRN_ERROR;
@@ -977,9 +985,9 @@ CONDITION_HANDLER(mdb_condition_handler)
 					{
 						assert(SFF_INDCE & fp->flags);
 						fp->mpc = fp->ctxt;
-						fp->flags &= SSF_NORET_VIA_MUMTSTART_OFF; /* Frame enterable now with mpc reset */
+						fp->flags &= SFF_NORET_VIA_MUMTSTART_OFF; /* Frame enterable now with mpc reset */
 						GTMTRIG_ONLY(
-							DBGTRIGR((stderr, "mdb_condition_handler: disabling SSF_NORET_VIA_MUMTSTART"
+							DBGTRIGR((stderr, "mdb_condition_handler: disabling SFF_NORET_VIA_MUMTSTART"
 								  " (4) in frame 0x"lvaddr"\n", frame_pointer)));
 						break;
 					}
@@ -990,18 +998,18 @@ CONDITION_HANDLER(mdb_condition_handler)
 					{	/* GT.M specific error trapping retries the line with the error */
 						fp->mpc = dollar_ecode.error_last_b_line;
 						fp->ctxt = context;
-						fp->flags &= SSF_NORET_VIA_MUMTSTART_OFF; /* Frame enterable now with mpc reset */
+						fp->flags &= SFF_NORET_VIA_MUMTSTART_OFF; /* Frame enterable now with mpc reset */
 						GTMTRIG_ONLY(
-							DBGTRIGR((stderr, "mdb_condition_handler: disabling SSF_NORET_VIA_MUMTSTART"
+							DBGTRIGR((stderr, "mdb_condition_handler: disabling SFF_NORET_VIA_MUMTSTART"
 								  " (5) in frame 0x"lvaddr"\n", frame_pointer)));
 						break;
 					} else
 					{
 						fp->ctxt = GTM_CONTEXT(pseudo_ret);
 						fp->mpc = CODE_ADDRESS(pseudo_ret);
-						fp->flags &= SSF_NORET_VIA_MUMTSTART_OFF; /* Frame enterable now with mpc reset */
+						fp->flags &= SFF_NORET_VIA_MUMTSTART_OFF; /* Frame enterable now with mpc reset */
 						GTMTRIG_ONLY(
-							DBGTRIGR((stderr, "mdb_condition_handler: disabling SSF_NORET_VIA_MUMTSTART"
+							DBGTRIGR((stderr, "mdb_condition_handler: disabling SFF_NORET_VIA_MUMTSTART"
 							  " (6) in frame 0x"lvaddr"\n", frame_pointer)));
 					}
 				}

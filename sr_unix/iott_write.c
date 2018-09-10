@@ -120,7 +120,6 @@ void iott_write(mstr *v)
 		str = v->addr;
 		io_ptr = io_curr_device.out;
 		tt_ptr = (d_tt_struct *)io_ptr->dev_sp;
-		SETTERM_IF_NEEDED(io_ptr, tt_ptr);
 		if (tt_ptr->mupintr)
 			rts_error_csa(CSA_ARG(NULL) VARLSTCNT(1) ERR_ZINTRECURSEIO);
 		ESTABLISH_GTMIO_CH(&io_curr_device, ch_set);
@@ -135,6 +134,8 @@ void iott_write(mstr *v)
 				{
 					iott_write_buffered_text(io_ptr, STR_AND_LEN(NATIVE_TTEOL));
 					io_ptr->dollar.y++;
+					if (io_ptr->length)
+						io_ptr->dollar.y %= io_ptr->length;
 					io_ptr->dollar.x = 0;
 				}
 				if (START != io_ptr->esc_state)

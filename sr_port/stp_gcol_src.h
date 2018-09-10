@@ -719,7 +719,7 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 		MVAL_STPG_ADD(&dollar_ztwormhole);
 #		endif
 		MVAL_STPG_ADD(TADR(last_fnquery_return_varname));
-		for (index = 0; index < TREF(last_fnquery_return_subcnt); index++);
+		for (index = 0; index < TREF(last_fnquery_return_subcnt); index++)
 			MVAL_STPG_ADD(&TAREF1(last_fnquery_return_sub, index));
 		for (mvs = mv_chain; mvs < (mv_stent *)stackbase; mvs = (mv_stent *)((char *)mvs + mvs->mv_st_next))
 		{
@@ -1040,9 +1040,9 @@ void stp_gcol(size_t space_asked)	/* BYPASSOK */
 					stp_incr = stp_incr / 2;
 			}
 		} while (TRUE);
+		cstr = array;
 		if (strpool_base != stringpool.base) /* expanded successfully */
 		{
-			cstr = array;
 			COPY2STPOOL(cstr, topstr);
 			/* NOTE: rts_stringpool must be kept up-to-date because it tells whether the current
 			 * stringpool is the run-time or indirection stringpool.
