@@ -1,6 +1,7 @@
 /****************************************************************
  *								*
- *	Copyright 2001 Sanchez Computer Associates, Inc.	*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
  *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
@@ -9,9 +10,10 @@
  *								*
  ****************************************************************/
 
-#ifndef GET_SPEC_INCLUDED
-#define GET_SPEC_INCLUDED
+#ifndef DLOPEN_HANDLE_ARRAY_included
+#define DLOPEN_HANDLE_ARRAY_included
 
-uchar_ptr_t get_spec(uchar_ptr_t spec_rec_addr, int spec_rec_len, unsigned char spec_type);
+void	dlopen_handle_array_add(void_ptr_t handle);
+void	dlopen_handle_array_close(void);
 
-#endif /* GET_SPEC_INCLUDED */
+#endif /* DLOPEN_HANDLE_ARRAY_included */

@@ -309,11 +309,6 @@ STATICFNDEF int ssl_error(gtm_tls_socket_t *tls_sock, int err, long verify_resul
 		case SSL_ERROR_WANT_READ:
 			return GTMTLS_WANT_READ;
 
-		case SSL_ERROR_WANT_X509_LOOKUP:
-		case SSL_ERROR_WANT_ACCEPT:
-		case SSL_ERROR_WANT_CONNECT:
-			assert(FALSE);
-
 		case SSL_ERROR_SSL:
 		case SSL_ERROR_NONE:
 			errptr = gtmcrypt_err_string;
@@ -352,6 +347,9 @@ STATICFNDEF int ssl_error(gtm_tls_socket_t *tls_sock, int err, long verify_resul
 			} while (TRUE);
 			break;
 
+		case SSL_ERROR_WANT_X509_LOOKUP:
+		case SSL_ERROR_WANT_ACCEPT:
+		case SSL_ERROR_WANT_CONNECT:
 		default:
 			tls_errno = -1;
 			UPDATE_ERROR_STRING("Unknown error: %d returned by `SSL_get_error'", error_code);
@@ -768,7 +766,7 @@ int gtm_tls_store_passwd(gtm_tls_ctx_t *tls_ctx, const char *tlsid, const char *
 	/* Either no entry for tlsid or need to replace with new value */
 	pwent = MALLOC(SIZEOF(passwd_entry_t));
 	pwent->envindx = YDBENVINDX_TLS_PASSWD_PREFIX;
-	strcpy(pwent->suffix, tlsid);
+	SNPRINTF(pwent->suffix, SIZEOF(pwent->suffix), "%s", tlsid);
 	pwent->env_value = MALLOC(obs_len + 1);
 	memcpy(pwent->env_value, obs_passwd, obs_len + 1);	/* include null */
 	pwent->passwd = NULL;
@@ -1167,7 +1165,11 @@ gtm_tls_socket_t *gtm_tls_socket(gtm_tls_ctx_t *tls_ctx, gtm_tls_socket_t *prev_
 			if (NULL != fp)
 			{
 				evp_pkey = PEM_read_PrivateKey(fp, &evp_pkey, &passwd_callback, pwent);
-				fclose(fp);
+				/* If fclose(fp) fails, ignore it particularly because we opened the file in "r" mode only
+				 * so there is no danger of loss of updates. If evp_pkey is non-NULL, we definitely want to
+				 * proceed. If it is NULL, we will error out a few lines later. Hence the (void) below.
+				 */
+				(void)fclose(fp);
 			} else
 				evp_pkey = NULL;
 			if (NULL == evp_pkey)
@@ -1280,8 +1282,8 @@ gtm_tls_socket_t *gtm_tls_socket(gtm_tls_ctx_t *tls_ctx, gtm_tls_socket_t *prev_
 			session_id_len = session_id_len / 2;		/* bytes */
 		} else
 		{
-			strcpy((char *)session_id_string, id);		/* default to tlsid */
-			session_id_len = STRLEN(id);
+			SNPRINTF((char *)session_id_string, SIZEOF(session_id_string), "%s", id);	/* default to tlsid */
+			session_id_len = STRLEN((char *)session_id_string);
 		}
 		if (0 >= SSL_set_session_id_context(ssl, (const unsigned char *)session_id_string, (unsigned int)session_id_len))
 		{
@@ -1305,11 +1307,11 @@ gtm_tls_socket_t *gtm_tls_socket(gtm_tls_ctx_t *tls_ctx, gtm_tls_socket_t *prev_
 			SSL_set_tmp_dh_callback(ssl, tmp_dh_callback);
 		}
 	}
-	tlscafile = config_lookup_string(cfg, "tls.CAfile", &CAfile);
 	SNPRINTF(cfg_path, MAX_CONFIG_LOOKUP_PATHLEN, "tls.%s.CAfile", id);
-	config_lookup_string(cfg, cfg_path, &CAfile);	/* if absent CAfile retains value */
-	if (NULL != CAfile)
+	tlscafile = config_lookup_string(cfg, cfg_path, &CAfile);	/* if absent CAfile retains value */
+	if (CONFIG_FALSE != tlscafile)
 	{
+		assert(NULL != CAfile);
 		if (!(GTMTLS_OP_CA_LOADED & tls_ctx->flags))
 		{	/* no CAfile or CApath before so do now */
 			if (!SSL_CTX_load_verify_locations(tls_ctx->ctx, CAfile, NULL))
@@ -1595,8 +1597,12 @@ int gtm_tls_renegotiate_options(gtm_tls_socket_t *socket, int msec_timeout, char
 			SNPRINTF(cfg_path, MAX_CONFIG_LOOKUP_PATHLEN, "tls.%s.CAfile", socket->tlsid);
 			rv = config_lookup_string(cfg, cfg_path, &CAfile);
 			if (CONFIG_FALSE == rv)
-			{
-				rv = config_lookup_string(cfg, "tls.CAfile", &CAfile);
+			{	/* We intentionally do not check the return value of the below call. If it returns CONFIG_FALSE,
+				 * we are guaranteed CAfile is NULL. In that case, we will anyways skip the later "if" block
+				 * of code that handles a non-NULL CAfile. No error is needed in that case.
+				 */
+				assert(NULL == CAfile);
+				(void)config_lookup_string(cfg, "tls.CAfile", &CAfile);
 			}
 		}
 		if (NULL != CAfile)
@@ -1613,7 +1619,7 @@ int gtm_tls_renegotiate_options(gtm_tls_socket_t *socket, int msec_timeout, char
 		}
 		if ((0 < session_id_len)
 			&& (0 >= SSL_set_session_id_context(ssl, (const unsigned char *)session_id_string,
-						(unsigned int)session_id_len)))
+										(unsigned int)session_id_len)))
 		{
 			GC_APPEND_OPENSSL_ERROR("Failed to set Session-ID context to enable session resumption.");
 			tls_errno = -1;
@@ -1669,6 +1675,7 @@ int gtm_tls_get_conn_info(gtm_tls_socket_t *socket, gtm_tls_conn_info *conn_info
 					break;
 				default:
 					assert(FALSE && ssl_version);
+					ssl_version_ptr = "unknown";
 					break;
 			}
 			SNPRINTF(conn_info->protocol, SIZEOF(conn_info->protocol), "%s", ssl_version_ptr);

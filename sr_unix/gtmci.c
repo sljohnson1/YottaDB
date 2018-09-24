@@ -31,7 +31,6 @@
 
 #include "cli.h"
 #include "stringpool.h"
-#include "rtnhdr.h"
 #include "stack_frame.h"
 #include "mvalconv.h"
 #include "libyottadb_int.h"
@@ -89,6 +88,7 @@ GBLREF	u_casemap_t 		gtm_strToTitle_ptr;		/* Function pointer for gtm_strToTitle
 #include "hashtab_int4.h"	/* needed for tp.h and cws_insert.h */
 #include "tp.h"
 #include "ydb_getenv.h"
+#include "dlopen_handle_array.h"
 
 GBLREF  stack_frame     	*frame_pointer;
 GBLREF  unsigned char		*msp;
@@ -1081,6 +1081,7 @@ int ydb_ci(const char *c_rtn_name, ...)
 	va_list var;
 
 	VAR_START(var, c_rtn_name);
+	/* Note: "va_end(var)" done inside "ydb_ci_exec" */
 	return ydb_ci_exec(c_rtn_name, NULL, FALSE, var, FALSE);
 }
 
@@ -1092,6 +1093,7 @@ int ydb_cip(ci_name_descriptor* ci_info, ...)
 	va_list var;
 
 	VAR_START(var, ci_info);
+	/* Note: "va_end(var)" done inside "ydb_ci_exec" */
 	return ydb_ci_exec(ci_info->rtn_name.address, ci_info->handle, TRUE, var, FALSE);
 }
 
@@ -1100,6 +1102,7 @@ int gtm_ci_filter(const char *c_rtn_name, ...)
 	va_list var;
 
 	VAR_START(var, c_rtn_name);
+	/* Note: "va_end(var)" done inside "ydb_ci_exec" */
 	return ydb_ci_exec(c_rtn_name, NULL, FALSE, var, TRUE);
 }
 
@@ -1337,6 +1340,8 @@ int ydb_exit()
 #	endif
 	REVERT;
 	gtm_startup_active = FALSE;
+	/* We might have opened one or more shlib handles using "dlopen". Do a "dlclose" of them now. */
+	dlopen_handle_array_close();
 	return 0;
 }
 

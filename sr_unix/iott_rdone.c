@@ -75,7 +75,7 @@ int	iott_rdone (mint *v, int4 msec_timeout)	/* timeout in milliseconds */
 	d_tt_struct	*tt_ptr;
 	tt_interrupt	*tt_state;
 	TID		timer_id;
-	int		rdlen, selstat, status, utf8_more, inchar_width;
+	int		rdlen, selstat, status, utf8_more, utf8_seen, inchar_width;
 	uint4		mask;
 	int		msk_in, msk_num;
 	unsigned char	*zb_ptr, *zb_top;
@@ -111,25 +111,36 @@ int	iott_rdone (mint *v, int4 msec_timeout)	/* timeout in milliseconds */
 		}
 		assertpro(ttrdone == tt_state->who_saved);	/* ZINTRECURSEIO should have caught */
 		mv_zintdev = io_find_mvstent(io_ptr, FALSE);
-		if (NULL != mv_zintdev)
+		assert(NULL != mv_zintdev);
+		mv_zintdev->mv_st_cont.mvs_zintdev.buffer_valid = FALSE;
+		mv_zintdev->mv_st_cont.mvs_zintdev.io_ptr = NULL;
+		if (mv_chain == mv_zintdev)
+			POP_MV_STENT();         /* pop if top of stack */
+		/* The below two asserts ensure the invocation of "iott_rdone" after a job interrupt has
+		 * the exact same "msec_timeout" as well as "timed" variable context. This is needed to
+		 * ensure that the "end_time" usages in the post-interrupt invocation always happen
+		 * only if the pre-interrupt invocation had initialized "end_time".
+		 */
+		assert(timed == tt_state->timed);
+		assert(msec_timeout == tt_state->msec_timeout);
+		end_time = tt_state->end_time;
+		if (utf8_active)
 		{
-			mv_zintdev->mv_st_cont.mvs_zintdev.buffer_valid = FALSE;
-			mv_zintdev->mv_st_cont.mvs_zintdev.io_ptr = NULL;
-			if (mv_chain == mv_zintdev)
-				POP_MV_STENT();         /* pop if top of stack */
-			end_time = tt_state->end_time;
-			if (utf8_active)
+			utf8_more = tt_state->utf8_more;
+			if (utf8_more)
 			{
-				utf8_more = tt_state->utf8_more;
-				more_ptr = tt_state->more_ptr;
-				memcpy(more_buf, tt_state->more_buf, SIZEOF(more_buf));
+				utf8_seen = tt_state->utf8_seen;
+				assert(0 < utf8_seen);
+				assert(GTM_MB_LEN_MAX >= (utf8_seen + utf8_more));
+				memcpy(more_buf, tt_state->more_buf, utf8_seen);
+				more_ptr = more_buf + utf8_seen;
 			}
-			zb_ptr = tt_state->zb_ptr;
-			zb_top = tt_state->zb_top;
-			tt_state->who_saved = ttwhichinvalid;
-			tt_ptr->mupintr = FALSE;
-			zint_restart = TRUE;
 		}
+		zb_ptr = tt_state->zb_ptr;
+		zb_top = tt_state->zb_top;
+		tt_state->who_saved = ttwhichinvalid;
+		tt_ptr->mupintr = FALSE;
+		zint_restart = TRUE;
 	}
 	if (!zint_restart)
 	{
@@ -190,15 +201,33 @@ int	iott_rdone (mint *v, int4 msec_timeout)	/* timeout in milliseconds */
 				tt_state = &tt_ptr->tt_state_save;
 				tt_state->exp_length = 0;
 				tt_state->who_saved = ttrdone;
+				/* Note that "end_time" might be uninitialized in some cases (e.g. if "msec_timeout" is
+				 * NO_M_TIMEOUT or 0) but it is okay since when it is restored, we are guaranteed that
+				 * the post-interrupt invocation of "iott_rdone" (after the jobinterrupt is handled)
+				 * will use the restored "end_time" only if "msec_timeout" (which will have the exact
+				 * same value as the pre-interrupt invocation of "iott_rdone" thanks to the xf_restartpc
+				 * invocation in OC_RDONE in ttt.txt) is not NO_M_TIMEOUT or 0.
+				 */
 				tt_state->end_time = end_time;
 				if (utf8_active)
 				{
 					tt_state->utf8_more = utf8_more;
-					tt_state->more_ptr = more_ptr;
-					memcpy(tt_state->more_buf, more_buf, SIZEOF(more_buf));
+					if (utf8_more)
+					{
+						utf8_seen = (int)((UINTPTR_T)more_ptr - (UINTPTR_T)more_buf);
+						assert(0 < utf8_seen);
+						assert(GTM_MB_LEN_MAX >= (utf8_seen + utf8_more));
+						tt_state->utf8_seen = utf8_seen;
+						memcpy(tt_state->more_buf, more_buf, utf8_seen);
+					}
 				}
 				tt_state->zb_ptr = zb_ptr;
 				tt_state->zb_top = zb_top;
+#				ifdef DEBUG
+				/* Store debug-only context used later to assert when restoring this context */
+				tt_state->timed = timed;
+				tt_state->msec_timeout = msec_timeout;
+#				endif
 				PUSH_MV_STENT(MVST_ZINTDEV);	/* used as a flag only */
 				mv_chain->mv_st_cont.mvs_zintdev.buffer_valid = FALSE;
 				mv_chain->mv_st_cont.mvs_zintdev.io_ptr = io_ptr;

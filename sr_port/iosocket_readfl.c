@@ -3,6 +3,9 @@
  * Copyright (c) 2001-2017 Fidelity National Information	*
  * Services, Inc. and/or its subsidiaries. All rights reserved.	*
  *								*
+ * Copyright (c) 2018 YottaDB LLC. and/or its subsidiaries.	*
+ * All rights reserved.						*
+ *								*
  *	This source code contains the intellectual property	*
  *	of its copyright holder(s), and is made available	*
  *	under a license.  If you do not know the terms of	*
@@ -33,7 +36,6 @@
 #include "wake_alarm.h"
 #include "gtm_conv.h"
 #include "gtm_utf8.h"
-#include <rtnhdr.h>
 #include "stack_frame.h"
 #include "mv_stent.h"
 #include "send_msg.h"
@@ -766,13 +768,25 @@ int	iosocket_readfl(mval *v, int4 width, int4 msec_timeout)
 		 * that we are explicitly not handling jobinterrupt outofband here because it is handled above where it needs
 		 * to be done to be able to cleanly requeue any input (before delimiter procesing).
 		 */
-		if ((chars_read >= width) ||
-		    (MAX_STRLEN <= orig_bytes_read) ||
-		    (vari && !has_delimiter && (0 != chars_read) && !more_data) ||
-		    ((0 < status) && terminator))
+		if ((chars_read >= width)
+				|| (MAX_STRLEN <= orig_bytes_read)
+				|| (vari && !has_delimiter && (0 != chars_read) && !more_data)
+				|| ((0 < status) && terminator))
 			break;
 		if (0 != outofband)
-		{
+		{	/* Record the fact that we did see "outofband" while we were still not done with the read.
+			 * Note: One might be tempted to eliminate the "outofband_terminate" local variable and instead
+			 * use the global "outofband" where "outofband_terminate" is used in an if check down below.
+			 * But that is incorrect since the if "outofband" check would succeed in case we did a "break"
+			 * in the immediately previous "if" check above in case the "((0 < status) && terminator)" clause
+			 * turned out to be TRUE. In that case, we got just a terminator in the read and already reduced
+			 * bytes_read/chars_read to not count the terminator byte/character and so if we go down the
+			 * if "outofband" check down below, we would incorrectly save no byte/char as having been read
+			 * as part of the job interrupt which would mean we will merge the current read line with the
+			 * next read line and incorrectly return the two together as the result of one READ. To avoid
+			 * that we want to do the job interrupt save only if we notice outofband non-zero after having done
+			 * the "((0 < status) && terminator)" check. Hence the need for the "outofband_terminate" local variable.
+			 */
 			outofband_terminate = TRUE;
 			break;
 		}
@@ -821,39 +835,41 @@ int	iosocket_readfl(mval *v, int4 width, int4 msec_timeout)
 			DBGSOCK((stdout, "socrfl: Out of time to be returned (2)\n"));
 		}
 	}
-	/* If we terminated due to outofband, set up restart info. We may or may not restart (any outofband is capable of
-	 * restart) but set it up for at least the more common reasons (^C and job interrupt).
-	 *
+	/* If we terminated due to outofband, set up restart info if it is a restartable outofband.
 	 * Some restart info is kept in our iodesc block, but the buffer address information is kept in an mv_stent so if
 	 * the stack is garbage collected during the interrupt we don't lose track of where our stuff is saved away.
 	 */
 	if (outofband_terminate)
 	{
-		DBGSOCK((stdout, "socrfl: outofband interrupt received (%d) -- queueing mv_stent for read intr\n", outofband));
-		PUSH_MV_STENT(MVST_ZINTDEV);
-		mv_chain->mv_st_cont.mvs_zintdev.io_ptr = iod;
-		mv_chain->mv_st_cont.mvs_zintdev.buffer_valid = TRUE;
-		mv_chain->mv_st_cont.mvs_zintdev.curr_sp_buffer.addr = (char *)stringpool.free;
-		mv_chain->mv_st_cont.mvs_zintdev.curr_sp_buffer.len = bytes_read;
-		sockintr->who_saved = sockwhich_readfl;
-		if ((0 < msec_timeout) && (NO_M_TIMEOUT != msec_timeout))
+		if (OUTOFBAND_RESTARTABLE(outofband))
 		{
-			sockintr->end_time = end_time;
-			sockintr->end_time_valid = TRUE;
-			cancel_timer(timer_id);		/* Worry about timer if/when we come back */
+			DBGSOCK((stdout, "socrfl: outofband interrupt received (%d) -- queueing mv_stent for read intr\n",
+														outofband));
+			PUSH_MV_STENT(MVST_ZINTDEV);
+			mv_chain->mv_st_cont.mvs_zintdev.io_ptr = iod;
+			mv_chain->mv_st_cont.mvs_zintdev.buffer_valid = TRUE;
+			mv_chain->mv_st_cont.mvs_zintdev.curr_sp_buffer.addr = (char *)stringpool.free;
+			mv_chain->mv_st_cont.mvs_zintdev.curr_sp_buffer.len = bytes_read;
+			sockintr->who_saved = sockwhich_readfl;
+			if ((0 < msec_timeout) && (NO_M_TIMEOUT != msec_timeout))
+			{
+				sockintr->end_time = end_time;
+				sockintr->end_time_valid = TRUE;
+				cancel_timer(timer_id);		/* Worry about timer if/when we come back */
+			}
+			sockintr->max_bufflen = max_bufflen;
+			sockintr->bytes_read = bytes_read;
+			sockintr->chars_read = chars_read;
+			dsocketptr->mupintr = TRUE;
+			stringpool.free += bytes_read;	/* Don't step on our parade in the interrupt */
+			socketus_interruptus++;
+			DBGSOCK((stdout, "socrfl: .. mv_stent: bytes_read: %d  chars_read: %d  max_bufflen: %d  "
+				 "interrupts: %d  buffer_start: 0x"lvaddr"\n",
+				 bytes_read, chars_read, max_bufflen, socketus_interruptus, stringpool.free));
+			DBGSOCK_ONLY(if (sockintr->end_time_valid) DBGSOCK((stdout, "socrfl: .. endtime: %d/%d  msec_timeout: %d\n",
+									    end_time.at_sec, end_time.at_usec, msec_timeout)));
+			TRCTBL_ENTRY(SOCKRFL_OUTOFBAND, bytes_read, (INTPTR_T)chars_read, stringpool.free, NULL); /* BYPASSOK */
 		}
-		sockintr->max_bufflen = max_bufflen;
-		sockintr->bytes_read = bytes_read;
-		sockintr->chars_read = chars_read;
-		dsocketptr->mupintr = TRUE;
-		stringpool.free += bytes_read;	/* Don't step on our parade in the interrupt */
-		socketus_interruptus++;
-		DBGSOCK((stdout, "socrfl: .. mv_stent: bytes_read: %d  chars_read: %d  max_bufflen: %d  "
-			 "interrupts: %d  buffer_start: 0x"lvaddr"\n",
-			 bytes_read, chars_read, max_bufflen, socketus_interruptus, stringpool.free));
-		DBGSOCK_ONLY(if (sockintr->end_time_valid) DBGSOCK((stdout, "socrfl: .. endtime: %d/%d  msec_timeout: %d\n",
-								    end_time.at_sec, end_time.at_usec, msec_timeout)));
-		TRCTBL_ENTRY(SOCKRFL_OUTOFBAND, bytes_read, (INTPTR_T)chars_read, stringpool.free, NULL);	/* BYPASSOK */
 		REVERT_GTMIO_CH(&iod->pair, ch_set);
 		outofband_action(FALSE);
 		assertpro(FALSE);	/* Should *never* return from outofband_action */
